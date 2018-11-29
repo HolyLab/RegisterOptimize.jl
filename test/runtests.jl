@@ -1,9 +1,9 @@
-using StaticArrays, AffineTransforms, Interpolations, Base.Test
-import BlockRegistration, RegisterOptimize
+using StaticArrays, Interpolations, Test
+import RegisterOptimize
 using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, RegisterFit
 using Images, CoordinateTransformations, Rotations, RegisterOptimize
 
-using RegisterTestUtilities
+using RegisterUtilities
 
 ###
 ### Global-optimum initial guess
@@ -24,7 +24,7 @@ function initial_guess_direct(A, cs::Matrix, Qs::Matrix)
     reinterpret(SVector{2,Float64}, x, size(Qs))
 end
 
-function build_Ac_b{Tc,TQ}(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3})
+function build_Ac_b(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3}) where {Tc,TQ}
     n = size(Qs,3)
     l = size(A,1)
     b = zeros(l*n)
@@ -54,7 +54,7 @@ function build_Ac_b{Tc,TQ}(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3})
     Ac, b
 end
 
-function initial_guess_direct{Tc,TQ}(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3})
+function initial_guess_direct(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3}) where {Tc,TQ}
     Ac, b = build_Ac_b(A, λt, cs, Qs)
     x = Ac\b
     reinterpret(SVector{2,Float64}, x, size(Qs))
@@ -71,7 +71,7 @@ function build_A(knots, λ)
     A, ap
 end
 
-knots = (linspace(1,20,4),linspace(1,15,4))
+knots = (range(1, stop=20, length=4),range(1, stop=15, length=4))
 A, ap = build_A(knots, 1.0)
 gridsize = map(length, knots)
 Qs = Array{Any}(gridsize)
@@ -81,7 +81,7 @@ cs = Array{Any}(gridsize)
 tfm = tformrotate(pi/12)
 for (i,knot) in enumerate(eachknot(knots))
     v = [knot[1],knot[2]]
-    cs[i] = tfm*v-v
+    cs[i] = tfm(v)-v
     Qs[i] = eye(2,2)
 end
 P = RegisterOptimize.AffineQHessian(ap, Qs, identity)
@@ -101,7 +101,7 @@ for I in eachindex(u)
     @test ≈(ux[I], cs[I], atol=1e-3)
 end
 # Ensure that λ=0 gives the right initialization
-knots0 = (linspace(1,3,3),)
+knots0 = (range(1, stop=3, length=3),)
 ap0 = AffinePenalty(knots0, 0.0)
 cs0 = Any[[17.0], [-44.0], [12.0]] # Vector{Float64}[[17.0], [-44.0], [12.0]]
 Qs0 = [reshape([1], 1, 1) for i = 1:3]
@@ -112,7 +112,7 @@ u0, isconverged = @inferred(RegisterOptimize.initial_deformation(ap0, cs0, Qs0))
 @test u0[3] == [12.0]
 
 # Random initialization
-for I in CartesianRange(gridsize)
+for I in CartesianIndices(gridsize)
     QF = rand(2,2)
     Qs[I] = QF'*QF
     cs[I] = randn(2)
@@ -135,7 +135,7 @@ end
 # Random initialization with a temporal penalty
 Qs = Array{SMatrix{2,2,Float64,4}}(gridsize..., 5)
 cs = Array{SVector{2,Float64}}(gridsize..., 5)
-for I in CartesianRange(size(Qs))
+for I in CartesianIndices(size(Qs))
     QF = rand(2,2)
     Qs[I] = QF'*QF
     cs[I] = randn(2)
@@ -233,7 +233,7 @@ imgsz = (100,80)
 gridsize = (7,5)
 cntr = ([imgsz...]+1)/2
 tform = AffineTransform(S, zeros(2))
-knots = (linspace(1,imgsz[1],gridsize[1]), linspace(1,imgsz[2],gridsize[2]))
+knots = (range(1, stop=imgsz[1], length=gridsize[1]), range(1, stop=imgsz[2], length=gridsize[2]))
 shifts = Array{Any}(gridsize)
 mxsv = zeros(2)
 for (i,knot) in enumerate(eachknot(knots))
@@ -271,7 +271,7 @@ gridsize = (2,2)
 denom = ones(15,15)
 mms = tighten([quadratic(cs[:,t], Qs[:,:,t], denom) for i = 1:gridsize[1], j = 1:gridsize[2], t = 1:3])
 mmis = RegisterPenalty.interpolate_mm!(mms)
-knots = (linspace(1,100,gridsize[1]), linspace(1,99,gridsize[2]))
+knots = (range(1, stop=100, length=gridsize[1]), range(1, stop=99, length=gridsize[2]))
 ap = RegisterPenalty.AffinePenalty(knots, 1.0)
 u = randn(2, gridsize..., 3)
 ϕs = tighten([GridDeformation(u[:,:,:,t], knots) for t = 1:3])
@@ -291,7 +291,7 @@ end
 # Optimization with linear interpolation of mismatch data
 fixed = 1:8
 moving = fixed + 1
-knots = (linspace(1,8,3),)
+knots = (range(1, stop=8, length=3),)
 aperture_centers = [(1.0,), (4.5,), (8.0,)]
 aperture_width = (3.5,)
 mxshift = (2,)
