@@ -317,7 +317,7 @@ function _initial_deformation(ap::AffinePenalty{T,N}, cs, Qs) where {T,N}
         fill!(x, 0)
         isconverged = true
     end
-    convert_to_fixed(SVector{N,T}, x, size(cs)), isconverged
+    Array(convert_to_fixed(SVector{N,T}, x, size(cs))), isconverged
 end
 
 cs2u(::Type{V}, cs) where {V} = [V((c...,)) for c in cs]
