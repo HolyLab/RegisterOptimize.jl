@@ -1,8 +1,7 @@
 using StaticArrays, Interpolations, Test
 import RegisterOptimize
 using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, RegisterFit
-using Images, CoordinateTransformations, Rotations, RegisterOptimize
-
+using Images, CoordinateTransformations, Rotations, RegisterOptimize, LinearAlgebra
 using RegisterUtilities
 
 ###
@@ -21,7 +20,7 @@ end
 function initial_guess_direct(A, cs::Matrix, Qs::Matrix)
     Ac, b = build_Ac_b(A, cs, Qs)
     x = Ac\b
-    reinterpret(SVector{2,Float64}, x, size(Qs))
+    reshape(reinterpret(SVector{2,Float64}, vec(x)), size(Qs))
 end
 
 function build_Ac_b(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3}) where {Tc,TQ}
@@ -57,7 +56,7 @@ end
 function initial_guess_direct(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3}) where {Tc,TQ}
     Ac, b = build_Ac_b(A, λt, cs, Qs)
     x = Ac\b
-    reinterpret(SVector{2,Float64}, x, size(Qs))
+    reshape(reinterpret(SVector{2,Float64}, vec(x)), size(Qs))
 end
 
 function build_A(knots, λ)
@@ -74,15 +73,15 @@ end
 knots = (range(1, stop=20, length=4),range(1, stop=15, length=4))
 A, ap = build_A(knots, 1.0)
 gridsize = map(length, knots)
-Qs = Array{Any}(gridsize)
-cs = Array{Any}(gridsize)
+Qs = Array{Any}(undef, gridsize)
+cs = Array{Any}(undef, gridsize)
 
 # Known exact answer
 tfm = tformrotate(pi/12)
 for (i,knot) in enumerate(eachknot(knots))
     v = [knot[1],knot[2]]
     cs[i] = tfm(v)-v
-    Qs[i] = eye(2,2)
+    Qs[i] = Matrix{Float64}(I,2,2)
 end
 P = RegisterOptimize.AffineQHessian(ap, Qs, identity)
 Ac, b = build_Ac_b(A, cs, Qs);
@@ -133,8 +132,8 @@ for I in eachindex(u)
 end
 
 # Random initialization with a temporal penalty
-Qs = Array{SMatrix{2,2,Float64,4}}(gridsize..., 5)
-cs = Array{SVector{2,Float64}}(gridsize..., 5)
+Qs = Array{SMatrix{2,2,Float64,4}}(undef, gridsize..., 5)
+cs = Array{SVector{2,Float64}}(undef, gridsize..., 5)
 for I in CartesianIndices(size(Qs))
     QF = rand(2,2)
     Qs[I] = QF'*QF
@@ -228,30 +227,30 @@ end
 
 # Set up an affine transformation and put the optimal shift
 # in each block at the corresponding shifted-knot position
-S = eye(2,2) + 0.1*rand(2,2)
+S = Matrix{Float64}(I,2,2) + 0.1*rand(2,2)
 imgsz = (100,80)
 gridsize = (7,5)
-cntr = ([imgsz...]+1)/2
-tform = AffineTransform(S, zeros(2))
+cntr = ([imgsz...].+1)/2
+tform = AffineMap(S, zeros(2))
 knots = (range(1, stop=imgsz[1], length=gridsize[1]), range(1, stop=imgsz[2], length=gridsize[2]))
-shifts = Array{Any}(gridsize)
+shifts = Array{Any}(undef, gridsize)
 mxsv = zeros(2)
 for (i,knot) in enumerate(eachknot(knots))
     knotv = [knot...]-cntr
-    dx = tform*knotv - knotv
-    mxsv = max.(mxsv, abs.(dx))
+    dx = tform(knotv) - knotv
+    global mxsv = max.(mxsv, abs.(dx))
     shifts[i] = dx
 end
 # Create the fake mismatch data
 m, n = 2ceil(Int,mxsv[1])+3, 2ceil(Int,mxsv[2])+3
-nums = Array{Matrix{Float64}}(gridsize)
+nums = Array{Matrix{Float64}}(undef, gridsize)
 for I in eachindex(nums)
     QF = rand(2,2)   # random quadratic component
     nums[I] = quadratic(m, n, shifts[I], QF*QF')
 end
 denom = ones(m, n)
 mms = mismatcharrays(nums, denom)
-mmis = interpolate_mm!(mms, Quadratic(InPlaceQ()))
+mmis = interpolate_mm!(mms, BSpline(Quadratic(InPlaceQ(OnCell()))))
 
 u = randn(2, gridsize...)
 RegisterFit.uclamp!(u, (m>>1, n>>1))
@@ -265,8 +264,8 @@ for I in eachindex(shifts)
 end
 
 ### Optimization with a temporal penalty
-Qs = cat(3, eye(2,2), zeros(2,2), eye(2,2))
-cs = cat(2, [5,-3], [0,0], [3,-1])
+Qs = cat(Matrix{Float64}(I,2,2), zeros(2,2), Matrix{Float64}(I,2,2), dims=3)
+cs = cat([5,-3], [0,0], [3,-1], dims=2)
 gridsize = (2,2)
 denom = ones(15,15)
 mms = tighten([quadratic(cs[:,t], Qs[:,:,t], denom) for i = 1:gridsize[1], j = 1:gridsize[2], t = 1:3])
@@ -280,17 +279,17 @@ g = similar(u)
 c = 1/prod(gridsize)  # not sure about this
 A = [2c+1 -1 0; -1 2 -1; 0 -1 2c+1]
 target = (A\(2c*cs'))'
-for (u, val) in ((ϕs[1].u, target[:,1]),
+for (u1, val) in ((ϕs[1].u, target[:,1]),
                  (ϕs[2].u, target[:,2]),
                  (ϕs[3].u, target[:,3]))
-    for uv in u
+    for uv in u1
         @test ≈(uv, val, atol=1e-2)  # look into why this is so low
     end
 end
 
 # Optimization with linear interpolation of mismatch data
 fixed = 1:8
-moving = fixed + 1
+moving = fixed .+ 1
 knots = (range(1, stop=8, length=3),)
 aperture_centers = [(1.0,), (4.5,), (8.0,)]
 aperture_width = (3.5,)
@@ -298,13 +297,13 @@ mxshift = (2,)
 gridsize = map(length, knots)
 mms = mismatch_apertures(fixed, moving, aperture_centers, aperture_width, mxshift; normalization=:pixels)
 E0 = zeros(size(mms))
-cs = Array{Any}(size(mms))
-Qs = Array{Any}(size(mms))
+cs = Array{Any}(undef, size(mms))
+Qs = Array{Any}(undef, size(mms))
 thresh = length(fixed)/prod(gridsize)/4
 for i = 1:length(mms)
     E0[i], cs[i], Qs[i] = qfit(mms[i], thresh; opt=false)
 end
-mmis = interpolate_mm!(mms, Linear())
+mmis = interpolate_mm!(mms, BSpline(Linear()))
 λ = 0.001
 ap = AffinePenalty{Float64,ndims(fixed)}(knots, λ)
 ϕ, mismatch = RegisterOptimize.fixed_λ(cs, Qs, knots, ap, mmis)

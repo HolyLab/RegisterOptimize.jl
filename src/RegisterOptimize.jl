@@ -1,10 +1,10 @@
 module RegisterOptimize
 
 using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter, LinearAlgebra
-using RegisterCore, RegisterMismatch, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
-using Printf
+using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
+using Printf, LinearAlgebra
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
-using Base: Test, tail
+using Base: tail
 
 using Images, CoordinateTransformations, QuadDIRECT, RegisterMismatch #for qd_rigid.jl
 
@@ -86,7 +86,9 @@ the two images; with non-zero `thresh`, it is not permissible to
 "align" the images by shifting one entirely out of the way of the
 other.
 """
-function optimize_rigid(fixed, moving, A::AffineMap, maxshift, SD = eye(ndims(A)), maxrot=pi; thresh=0, tol=1e-4, print_level=0, max_iter=3000)
+function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
+                SD = Matrix{Float64}(I,ndims(A),ndims(A)),
+                maxrot=pi; thresh=0, tol=1e-4, print_level=0, max_iter=3000)
     objective = RigidOpt(to_float(fixed, moving)..., SD, thresh)
     # Convert initial guess into parameter vector
     R = SD*A.scalefwd/SD
@@ -126,10 +128,11 @@ specifying the number of gridpoints to search in each of the rotation
 axes, corresponding with entries in `maxradians`. `SD` is a matrix
 specifying the sample spacing.
 
-e.g. `grid_rotations((pi/8,pi/8,pi/8), (3,3,3), eye(3))` would return an array
-of 27 rotations with 3 possible angles for each Euler axis: -pi/8, 0, pi/8.
-Passing `eye(3)` for SD indicates that the resulting transforms are meant
-to be applied to an image with isotropic pixel spacing.
+e.g. `grid_rotations((pi/8,pi/8,pi/8), (3,3,3), Matrix{Float64}(I,3,3))` would
+return an array of 27 rotations with 3 possible angles for each
+Euler axis: -pi/8, 0, pi/8. Passing `Matrix{Float64}(I,3,3)` for SD indicates
+that the resulting  transforms are meant to be applied to an image with isotropic
+pixel spacing.
 """
 function grid_rotations(maxradians, rgridsz, SD)
     rgridsz = [rgridsz...]
@@ -150,7 +153,7 @@ function grid_rotations(maxradians, rgridsz, SD)
     else
         rotation_angles = range(-grid_radius[1]*maxradians[1], stop=grid_radius[1]*maxradians[1], length=rgridsz[1])
     end
-    axmat = eye(nd)
+    axmat = Matrix{Float64}(I,nd,nd)
     axs = map(x->axmat[:,x], 1:nd)
     tfeye = tformeye(nd)
     output = typeof(tfeye)[]
@@ -169,7 +172,7 @@ function grid_rotations(maxradians, rgridsz, SD)
 end
 
 """
-`best_tform, best_mm = rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD =eye(ndims(fixed)))`
+`best_tform, best_mm = rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD =Matrix{Float64}(I,ndims(fixed),ndims(fixed))))`
 Tries a grid of rotations to align `moving` to `fixed`.  Also calculates the best translation (`maxshift` pixels
 or less) to align the images after performing the rotation. Returns an AffineMap that captures both the
 best rotation and shift out of the values searched, along with the mismatch value after applying that transform (`best_mm`).
@@ -177,7 +180,7 @@ best rotation and shift out of the values searched, along with the mismatch valu
 For more on how the arguments `maxradians`, `rgridsz`, and `SD` influence the search, see the documentation for
 `grid_rotations`.
 """
-function rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD = eye(ndims(fixed)))
+function rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD = Matrix{Float64}(I,ndims(fixed),ndims(fixed)))
     rgridsz = [rgridsz...]
     nd = ndims(moving)
     @assert nd == ndims(fixed)
@@ -389,7 +392,7 @@ function (*)(P::AffineQHessian{AffinePenalty{T,N}}, x::AbstractVector{T}) where 
     u = convert_to_fixed(SVector{N,T}, x, size(P.Qs))
     g = similar(u)
     _mul!(g, P, u)
-    reinterpret(T, g, size(x))
+    reshape(reinterpret(T, vec(g)), size(x))
 end
 
 function LinearAlgebra.mul!(dest::AbstractVector{T},
@@ -432,7 +435,7 @@ function _affine_part!(g, ap::AffinePenalty{T,N}, u) where {T,N}
     elseif ndims(u) == N+1
         # Last dimension is time
         n = size(u)[end]
-        colons = ntuple(ColonFun, Val{N})
+        colons = ntuple(ColonFun, Val(N))
         for i = 1:n
             indexes = (colons..., i)
             snew = penalty!(view(g, indexes...), ap, view(u, indexes...))
@@ -591,7 +594,7 @@ end
 
 function optimize!(ϕ, ϕ_old, dp::AffinePenalty{T,N}, mmis::Array{Tf}) where {Tf<:Number, T, N}
     ND = NumDenom{Tf}
-    mmisr = reinterpret(ND, mmis, tail(size(mmis)))
+    mmisr = reshape(reinterpret(ND, vec(mmis)), tail(size(mmis)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     optimize!(ϕ, ϕ_old, dp, mmisc)
 end
@@ -606,7 +609,7 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
                          sb="yes",
                          tol=tol, kwargs...)
     m = MathProgBase.NonlinearModel(solver)
-    ub1 = T[mxs...] - T(RegisterFit.register_half)
+    ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
     MathProgBase.loadproblem!(m, length(uvec), 0, -ub, ub, T[], T[], :Min, objective)
     MathProgBase.setwarmstart!(m, uvec)
@@ -624,16 +627,16 @@ end
 
 function u_as_vec(ϕ::GridDeformation{T,N}) where {T,N}
     n = length(ϕ.u)
-    uvec = reinterpret(T, ϕ.u, (n*N,))
+    uvec = reshape(reinterpret(T, vec(ϕ.u)), (n*N,))
 end
 
 function vec_as_u(g::Array{T}, ϕ::GridDeformation{T,N}) where {T,N}
-    reinterpret(SVector{N,T}, g, size(ϕ.u))
+    reshape(reinterpret(SVector{N,T}, vec(g)), size(ϕ.u))
 end
 
 function _copy!(ϕ::GridDeformation, x)
     uvec = u_as_vec(ϕ)
-    copy!(uvec, x)
+    copyto!(uvec, copy(x))
 end
 
 # Sequence of deformations
@@ -642,9 +645,9 @@ function u_as_vec(ϕs::Vector{D}) where D<:GridDeformation
     N = ndims(D)
     ngrid = length(first(ϕs).u)
     n = N*ngrid
-    uvec = Vector{T}(n*length(ϕs))
+    uvec = Vector{T}(undef, n*length(ϕs))
     for (i, ϕ) in enumerate(ϕs)
-        copy!(uvec, (i-1)*n+1, reinterpret(T, ϕ.u, (n,)), 1, n)
+        copyto!(uvec, (i-1)*n+1, reshape(reinterpret(T, vec(ϕ.u)), (n,)), 1, n)
     end
     uvec
 end
@@ -659,13 +662,13 @@ end
 
 function MathProgBase.eval_f(d::DeformOpt, x)
     uvec = u_as_vec(d.ϕ)
-    copy!(uvec, x)
+    copyto!(uvec, copy(x))
     penalty!(nothing, d.ϕ, d.ϕ_old, d.dp, d.mmis)
 end
 
 function MathProgBase.eval_grad_f(d::DeformOpt, grad_f, x)
     uvec = u_as_vec(d.ϕ)
-    copy!(uvec, x)
+    copyto!(uvec, x)
     penalty!(vec_as_u(grad_f, d.ϕ), d.ϕ, d.ϕ_old, d.dp, d.mmis)
 end
 
@@ -685,21 +688,25 @@ temporal penalty coefficient `λt`.
 function optimize!(ϕs, ϕs_old, dp::AffinePenalty, λt, mmis; kwargs...)
     T = eltype(eltype(first(mmis)))
     objective = DeformTseriesOpt(ϕs, ϕs_old, dp, λt, mmis)
-    df = DifferentiableFunction(x->MathProgBase.eval_f(objective, x),
-                                (x,g)->MathProgBase.eval_grad_f(objective, g, x),
-                                (x,g)->MathProgBase.eval_grad_f(objective, g, x))
     uvec = u_as_vec(ϕs)
+    # df = DifferentiableFunction(x->MathProgBase.eval_f(objective, x),
+    #                             (g,x)->MathProgBase.eval_grad_f(objective, g, x),
+    #                             (g,x)->MathProgBase.eval_grad_f(objective, g, x))
+    df = OnceDifferentiable(x->MathProgBase.eval_f(objective, x),
+                                (g,x)->MathProgBase.eval_grad_f(objective, g, x),uvec)
     mxs = maxshift(first(mmis))
-    ub1 = T[mxs...] - T(RegisterFit.register_half)
+    ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
-    constraints = ConstraintsBox(-ub, ub)
-    result = interior(df, uvec, constraints; method=:l_bfgs, xtol=1e-4, kwargs...)
-    _copy!(ϕs, result.minimum), result.f_minimum
+    # constraints = ConstraintsBox(-ub, ub)
+    # result = interior(df, constraints, uvec; method=:l_bfgs, xtol=1e-4, kwargs...)
+    # _copy!(ϕs, result.minimum), result.f_minimum
+    results = Optim.optimize(df, uvec, LBFGS(), Optim.Options(x_tol=1e-4, kwargs...))
+    _copy!(ϕs, Optim.minimizer(results)), Optim.minimum(results)
 end
 
 function optimize!(ϕs, ϕs_old, dp::AffinePenalty{T,N}, λt, mmis::Array{Tf}) where {Tf<:Number, T, N}
     ND = NumDenom{Tf}
-    mmisr = reinterpret(ND, mmis, tail(size(mmis)))
+    mmisr = reshape(reinterpret(ND, vec(mmis)), tail(size(mmis)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     optimize!(ϕs, ϕs_old, dp, λt, mmisc)
 end
@@ -729,8 +736,8 @@ function _copy!(ϕs::Vector{D}, x::Array{T}) where {D<:GridDeformation,T<:Number
     L = N*length(first(ϕs).u)
     length(x) == L*length(ϕs) || throw(DimensionMismatch("ϕs is incommensurate with a vector of length $(length(x))"))
     for (i, ϕ) in enumerate(ϕs)
-        uvec = reinterpret(eltype(ϕ), ϕ.u, (L,))
-        copy!(uvec, 1, x, (i-1)*L+1, L)
+        uvec = reshape(reinterpret(eltype(ϕ), vec(ϕ.u)), (L,))
+        copyto!(uvec, 1, x, (i-1)*L+1, L)
     end
     ϕs
 end
@@ -782,7 +789,7 @@ function fixed_λ(cs::AbstractArray{SVector{N,T}}, Qs::AbstractArray{SMatrix{N,N
         Base.warn_once("initial_deformation failed to converge with λ = ", ap.λ, ", λt = ", λt)
     end
     uclamp!(u0, maxshift)
-    colons = ntuple(ColonFun, Val{N})
+    colons = ntuple(ColonFun, Val(N))
     ϕs = [GridDeformation(u0[colons..., i], knots) for i = 1:size(u0)[end]]
     local mismatch
     println("Starting optimization.")
@@ -791,14 +798,14 @@ end
 
 # This version re-packs variables as read from the .jld file
 function fixed_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePenalty{T,N}, λt, mmis::Array{Tf}; kwargs...) where {Tf<:Number,T,N}
-    csr = reinterpret(SVector{N,Tf}, cs, tail(size(cs)))
-    Qsr = reinterpret(similar_type(SArray,Tf,Size(N,N)), Qs, tail(tail(size(Qs))))
+    csr = reshape(reinterpret(SVector{N,Tf}, vec(cs)), tail(size(cs)))
+    Qsr = reshape(reinterpret(similar_type(SArray,Tf,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
     if length(mmis) > 10^7
         L = length(mmis)*sizeof(Tf)/1024^3
         @printf "The mismatch data are %0.2f GB in size.\n  During optimization, the initial function evaluations may be limited by I/O and\n  could be very slow. Later evaluations should be faster.\n" L
     end
     ND = NumDenom{Tf}
-    mmisr = reinterpret(ND, mmis, tail(size(mmis)))
+    mmisr = reshape(reinterpret(ND, vec(mmis)), tail(size(mmis)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     fixed_λ(csr, Qsr, knots, ap, λt, mmisc; kwargs...)
 end
@@ -873,9 +880,9 @@ function auto_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePenal
 end
 
 function auto_λ(cs::Array{Float64}, Qs::Array{Float64}, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Float64}, λrange; kwargs...) where {T,N}
-    csr = reinterpret(SVector{N,Float64}, cs, tail(size(cs)))
-    Qsr = reinterpret(similar_type(SArray,Float64,Size(N,N)), Qs, tail(tail(size(Qs))))
-    mmisr = reinterpret(NumDenom{Float64}, mmis, tail(size(mmis)))
+    csr = reshape(reinterpret(SVector{N,Float64}, vec(cs)), tail(size(cs)))
+    Qsr = reshape(reinterpret(similar_type(SArray,Float64,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
+    mmisr = reshape(reinterpret(NumDenom{Float64}, vec(mmis)), tail(size(mmis)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     ap64 = convert(AffinePenalty{Float64,N}, ap)
     auto_λ(csr, Qsr, knots, ap64, mmisc, λrange; kwargs...)
@@ -911,7 +918,7 @@ function auto_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange
     ϕap = GridDeformation(u0, knots)
     ϕap, penaltyap = optimizer!(ϕap, mu_init)
     n = ceil(Int, log2(λmax) - log2(λmin))
-    λ_all = Vector{typeof(λmin)}(n)
+    λ_all = Vector{typeof(λmin)}(undef, n)
     penalty_all = similar(λ_all, typeof(penaltyprev))
     datapenalty_all = similar(penalty_all)
     ϕ_all = Any[]
@@ -978,8 +985,8 @@ function auto_λt(Es, cs, Qs, ap, λtrange)
     Esum = sum(Es)
     λt = first(λtrange)
     n = ceil(Int, log2(last(λtrange)) - log2(λt))
-    datapenalty = Vector{typeof(Esum)}(n)
-    λts = Vector{typeof(λt)}(n)
+    datapenalty = Vector{typeof(Esum)}(undef, n)
+    λts = Vector{typeof(λt)}(undef, n)
     @showprogress 1 "Calculating quadratic penalty as a function of λt: " for λindex = 1:n
         λts[λindex] = λt
         u0, isconverged = initial_deformation(ap, λt, cs, Qs)
@@ -998,8 +1005,8 @@ function auto_λt(Es, cs, Qs, ap, λtrange)
 end
 
 function auto_λt(Es, cs::Array{Tf}, Qs::Array{Tf}, ap::AffinePenalty{T,N}, λt) where {Tf<:Number,T,N}
-    csr = reinterpret(SVector{N,Tf}, cs, tail(size(cs)))
-    Qsr = reinterpret(similar_type(SArray,Tf,Size(N,N)), Qs, tail(tail(size(Qs))))
+    csr = reshape(reinterpret(SVector{N,Tf}, vec(cs)), tail(size(cs)))
+    Qsr = reshape(reinterpret(similar_type(SArray,Tf,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
     auto_λt(Es, csr, Qsr, ap, λt)
 end
 
@@ -1049,7 +1056,7 @@ function vec2vecϕ(Qs::Array{SMatrix{N,N,T,L}}, x::AbstractVector{T}) where {T,N
 end
 
 @noinline function _vec2vecϕ(x::AbstractArray, sz::NTuple{N,Int}) where N
-    colons = ntuple(ColonFun, Val{N})
+    colons = ntuple(ColonFun, Val(N))
     [GridDeformation(view(x, colons..., i), sz) for i = 1:size(x)[end]]
 end
 
@@ -1087,9 +1094,9 @@ function optimize(tform::AffineMap, mmis, knots)
     lower = repeat(-bound, outer=[1,size(X,2)])
     upper = repeat( bound, outer=[1,size(X,2)])
     # Extract the parameters from the initial guess
-    Si = tform.scalefwd
-    displacement = tform.offset
-    A = convert(Matrix{T}, [Si-eye(N) displacement; zeros(1,N) 1])
+    Si = tform.linear
+    displacement = tform.translation
+    A = convert(Matrix{T}, [Si-Matrix{Float64}(I,N,N) displacement; zeros(1,N) 1])
     # Determine the blocks that start in-bounds
     AX = A*X
     keep = trues(gridsize)
@@ -1113,13 +1120,13 @@ function optimize(tform::AffineMap, mmis, knots)
     # Assemble the objective and constraints
 
     constraints = Optim.ConstraintsL(X', lower', upper')
-    gtmp = Array{SVector{N,T}}(gridsize)
+    gtmp = Array{SVector{N,T}}(undef, gridsize)
     objective = (x,g) -> affinepenalty!(g, x, mmis, keep, X', gridsize, gtmp)
     @assert typeof(objective(A', T[])) == T
     result = interior(DifferentiableFunction(x->objective(x,T[]), Optim.dummy_g!, objective), A', constraints, method=:cg)
     @assert Optim.converged(result)
     Aopt = result.minimum'
-    Siopt = Aopt[1:N,1:N] + eye(N)
+    Siopt = Aopt[1:N,1:N] + Matrix{Float64}(I,N,N)
     displacementopt = Aopt[1:N,end]
     AffineMap(convert(Matrix{T}, Siopt), convert(Vector{T}, displacementopt)), result.f_minimum
 end
@@ -1132,7 +1139,7 @@ function affinepenalty!(g, At, mmis, keep, Xt, gridsize::NTuple{N}, gtmp) where 
     if !isempty(g)
         T = eltype(eltype(gtmp))
         nblocks = size(Xt,1)
-        At_mul_Bt!(g, Xt, [reinterpret(T,gtmp,(N,nblocks)); zeros(1,nblocks)])
+        At_mul_Bt!(g, Xt, [reshape(reinterpret(T,vec(gtmp)),(N,nblocks)); zeros(1,nblocks)])
     end
     val
 end
@@ -1140,7 +1147,7 @@ end
 function _calculate_u(At, Xt, gridsize::NTuple{N}) where N
     Ut = Xt*At
     u = Ut[:,1:size(Ut,2)-1]'                   # discard the dummy dimension
-    reinterpret(SVector{N, eltype(u)}, u, gridsize) # put u in the shape of the grid
+    reshape(reinterpret(SVector{N, eltype(u)}, vec(u)), gridsize) # put u in the shape of the grid
 end
 
 ###
