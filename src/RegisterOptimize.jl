@@ -689,18 +689,12 @@ function optimize!(ϕs, ϕs_old, dp::AffinePenalty, λt, mmis; kwargs...)
     T = eltype(eltype(first(mmis)))
     objective = DeformTseriesOpt(ϕs, ϕs_old, dp, λt, mmis)
     uvec = u_as_vec(ϕs)
-    # df = DifferentiableFunction(x->MathProgBase.eval_f(objective, x),
-    #                             (g,x)->MathProgBase.eval_grad_f(objective, g, x),
-    #                             (g,x)->MathProgBase.eval_grad_f(objective, g, x))
     df = OnceDifferentiable(x->MathProgBase.eval_f(objective, x),
                                 (g,x)->MathProgBase.eval_grad_f(objective, g, x),uvec)
     mxs = maxshift(first(mmis))
     ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
-    # constraints = ConstraintsBox(-ub, ub)
-    # result = interior(df, constraints, uvec; method=:l_bfgs, xtol=1e-4, kwargs...)
-    # _copy!(ϕs, result.minimum), result.f_minimum
-    results = Optim.optimize(df, uvec, LBFGS(), Optim.Options(x_tol=1e-4, kwargs...))
+    results = Optim.optimize(df, -ub, ub, uvec, Fminbox(LBFGS()), Optim.Options(x_tol=1e-4, kwargs...))
     _copy!(ϕs, Optim.minimizer(results)), Optim.minimum(results)
 end
 
