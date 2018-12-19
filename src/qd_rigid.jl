@@ -145,17 +145,21 @@ update_SD(SD::AbstractArray, m::StaticArray) = update_SD(SD, Array(m))
 update_SD(SD::AbstractArray, m::AbstractArray) = m\SD*m
 
 #rotation only
-function rot(theta, img::AbstractArray{T,2}, SD=eye(2)) where {T}
+function rot(theta, img::AbstractArray{T,2}, SD=I) where {T}
+    length(theta) == 1 || throw(DimensionMismatch("expected 1 parameters got $(length(thetas))"))
     rotm = SD\RotMatrix(theta...)*SD
+    SDS = SMatrix{2,2}(SD)
     return LinearMap(SMatrix{2,2}(rotm))
 end
-function rot(thetas, img::AbstractArray{T,3}, SD=eye(3)) where {T}
+function rot(thetas, img::AbstractArray{T,3}, SD=I) where {T}
     length(thetas) == 3 || throw(DimensionMismatch("expected 3 parameters, got $(length(thetas))"))
     θx, θy, θz = thetas
     rotm = RotMatrix(RotXYZ(θx,θy,θz))
-    rotm = SD\rotm*SD
+    SDS = SMatrix{3,3}(SD)
+    rotm = SDS\rotm*SDS
     return LinearMap(SMatrix{3,3}(rotm))
 end
+
 #rotation + shift, fast because it uses fourier method for shift
 function rigid_mm_fast(theta, mxshift, fixed, moving, thresh, SD; initial_tfm=IdentityTransformation())
     tfm = initial_tfm ∘ rot(theta, moving, update_SD(SD, initial_tfm))
