@@ -1,13 +1,13 @@
 #################### Begin Utilities ##########################
 function warp_and_intersect(moving, fixed, tfm)
     if tfm == IdentityTransformation()
-        if indices(moving) == indices(fixed)
+        if axes(moving) == axes(fixed)
             return moving, fixed
         end
     else
         moving = warp(moving, tfm)
     end
-    inds = intersect.(indices(moving), indices(fixed))
+    inds = intersect.(axes(moving), axes(fixed))
     #TODO: use views after BlockRegistration #83 on Github is addressed
     return moving[inds...], fixed[inds...]
 end
@@ -48,7 +48,7 @@ function default_linmap_bounds(img::AbstractArray{T,N}; dmax=0.05, ndmax=0.05) w
     for i=1:N
         deltas[i,i] = abs(dmax)
     end
-    return eye(N).-deltas, eye(N).+deltas
+    return Matrix(1.0*I,N,N).-deltas, Matrix(1.0*I,N,N).+deltas
 end
 
 """
@@ -169,13 +169,13 @@ function rigid_mm_fast(theta, mxshift, fixed, moving, thresh, SD; initial_tfm=Id
 end
 
 #rotation + translation
-function tfmrigid(params, img::AbstractArray{T,2}, SD=eye(2)) where {T}
+function tfmrigid(params, img::AbstractArray{T,2}, SD=Matrix(1.0*I,2,2)) where {T}
     length(params) == 3 || throw(DimensionMismatch("expected 3 parameters, got $(length(params))"))
     dx, dy, θ = params
     rt = rot(θ, img, SD)
     return Translation(dx, dy) ∘ rt
 end
-function tfmrigid(params, img::AbstractArray{T,3}, SD=eye(3)) where {T}
+function tfmrigid(params, img::AbstractArray{T,3}, SD=Matrix(1.0*I,3,3)) where {T}
     length(params) == 6 || throw(DimensionMismatch("expected 6 parameters, got $(length(params))"))
     dx, dy, dz, θx, θy, θz =  params
     rt = rot((θx, θy, θz), img, SD)
@@ -224,7 +224,7 @@ function qd_rigid_fine(fixed, moving, mxrot, minwidth_rot, SD;
 end
 
 """
-`tform, mm = qd_rigid(fixed, moving, mxshift, mxrot, minwidth_rot, SD=eye;  thresh=thresh, initial_tfm=IdentityTransformation(), kwargs...)`
+`tform, mm = qd_rigid(fixed, moving, mxshift, mxrot, minwidth_rot, SD=I;  thresh=thresh, initial_tfm=IdentityTransformation(), kwargs...)`
 optimizes a rigid transformation (rotation + shift) to minimize the mismatch between `fixed` and
 `moving` using the QuadDIRECT algorithm.  The algorithm is run twice: the first step uses a fourier method to speed up
 the search for the best whole-pixel shift.  The second step refines the search for sub-pixel accuracy. `kwargs...` can include any
@@ -245,7 +245,7 @@ the two images; with non-zero `thresh`, it is not permissible to "align" the ima
 
 If you have a good initial guess at the solution, pass it with the `initial_tfm` kwarg to jump-start the search.
 """
-function qd_rigid(fixed, moving, mxshift, mxrot, minwidth_rot, SD=eye(ndims(fixed));
+function qd_rigid(fixed, moving, mxshift, mxrot, minwidth_rot, SD=Matrix(1.0*I, ndims(fixed), ndims(fixed));
                   thresh=0.1*sum(abs2.(fixed[.!(isnan.(fixed))])),
                   initial_tfm=IdentityTransformation(),
                   kwargs...)
@@ -261,7 +261,7 @@ end
 
 ####################  Affine Transformation Search ##########################
 
-function linmap(mat, img::AbstractArray{T,N}, SD=eye(N), initial_tfm=IdentityTransformation()) where {T,N}
+function linmap(mat, img::AbstractArray{T,N}, SD=Matrix(1.0*I,N,N), initial_tfm=IdentityTransformation()) where {T,N}
     mat = [mat...]
     SD = update_SD(SD, initial_tfm)
     mat = SD\reshape(mat, N,N)*SD
@@ -277,7 +277,7 @@ function affine_mm_fast(params, mxshift, fixed, moving, thresh, SD; initial_tfm=
     return mm
 end
 
-function aff(params, img::AbstractArray{T,N}, SD=eye(N), initial_tfm=IdentityTransformation()) where {T,N}
+function aff(params, img::AbstractArray{T,N}, SD=Matrix(1.0*I,N,N), initial_tfm=IdentityTransformation()) where {T,N}
     params = [params...]
     length(params) == (N+N^2) || throw(DimensionMismatch("expected $(N+N^2) parameters, got $(length(params))"))
     offs = Float64.(params[1:N])
@@ -333,8 +333,8 @@ function qd_affine_fine(fixed, moving, linmins, linmaxs, SD;
 end
 
 """
-`tform, mm = qd_affine(fixed, moving, mxshift, linmins, linmaxs, SD=eye; thresh, initial_tfm, kwargs...)`
-`tform, mm = qd_affine(fixed, moving, mxshift, SD=eye; thresh, initial_tfm, kwargs...)`
+`tform, mm = qd_affine(fixed, moving, mxshift, linmins, linmaxs, SD=I; thresh, initial_tfm, kwargs...)`
+`tform, mm = qd_affine(fixed, moving, mxshift, SD=I; thresh, initial_tfm, kwargs...)`
 optimizes an affine transformation (linear map + translation) to minimize the mismatch between `fixed` and
 `moving` using the QuadDIRECT algorithm.  The algorithm is run twice: the first step samples the search space 
 at a coarser resolution than the second.  `kwargs...` may contain any keyword argument that can be passed to
@@ -362,7 +362,7 @@ Use `SD` if your axes are not uniformly sampled, for example `SD = diagm(voxelsp
 is a vector encoding the spacing along all axes of the image. `thresh` enforces a certain amount of sum-of-squared-intensity 
 overlap between the two images; with non-zero `thresh`, it is not permissible to "align" the images by shifting one entirely out of the way of the other.
 """
-function qd_affine(fixed, moving, mxshift, linmins, linmaxs, SD=eye(ndims(fixed));
+function qd_affine(fixed, moving, mxshift, linmins, linmaxs, SD=Matrix(1.0*I,ndims(fixed),ndims(fixed));
                    thresh=0.5*sum(abs2.(fixed[.!(isnan.(fixed))])),
                    initial_tfm=IdentityTransformation(),
                    kwargs...)
@@ -381,7 +381,7 @@ function qd_affine(fixed, moving, mxshift, linmins, linmaxs, SD=eye(ndims(fixed)
     return final_tfm, final_mm
 end
 
-function qd_affine(fixed, moving, mxshift, SD=eye(ndims(fixed));
+function qd_affine(fixed, moving, mxshift, SD=Matrix(1.0*I,ndims(fixed),ndims(fixed));
                    thresh=0.5*sum(abs2.(fixed[.!(isnan.(fixed))])),
                    initial_tfm=IdentityTransformation(),
                    kwargs...)
