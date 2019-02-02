@@ -1029,10 +1029,11 @@ Base.eltype(P::TimeHessian) = eltype(typeof(P))
 Base.size(P::TimeHessian, d) = size(P.aqh, d)
 
 function (*)(P::TimeHessian{AQH}, x::AbstractVector) where AQH
-    y = P.aqh*x
+    yv = P.aqh*x
     ϕs = vec2vecϕ(P.aqh.Qs, x)
+    y = convert_to_fixed(SVector{size(P.aqh.Qs[1],1),eltype(yv)}, yv, size(P.aqh.Qs))
     penalty!(y, P.λt, ϕs)
-    y
+    yv
 end
 
 function LinearAlgebra.mul!(y::AbstractVector,
