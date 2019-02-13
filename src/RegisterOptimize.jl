@@ -1,12 +1,13 @@
 module RegisterOptimize
 
-using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter, LinearAlgebra
+using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
 using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
-using Printf, LinearAlgebra
+using RegisterMismatch
+using Printf, LinearAlgebra, Statistics
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
 using Base: tail
 
-using Images, CoordinateTransformations, QuadDIRECT, RegisterMismatch #for qd_rigid.jl
+using Images, CoordinateTransformations, QuadDIRECT # , RegisterMismatch for qd_rigid.jl
 
 import Base: *
 
@@ -87,13 +88,13 @@ the two images; with non-zero `thresh`, it is not permissible to
 other.
 """
 function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
-                SD = Matrix{Float64}(I,ndims(A),ndims(A)),
+                SD = Matrix{Float64}(I,size(A.linear,1),size(A.linear,1)),
                 maxrot=pi; thresh=0, tol=1e-4, print_level=0, max_iter=3000)
     objective = RigidOpt(to_float(fixed, moving)..., SD, thresh)
     # Convert initial guess into parameter vector
-    R = SD*A.scalefwd/SD
+    R = SD*A.linear/SD
     rotp = rotationparameters(R)
-    dx = A.offset
+    dx = A.translation
     p0 = [rotp; dx]
     T = eltype(p0)
 
@@ -160,13 +161,13 @@ function grid_rotations(maxradians, rgridsz, SD)
     for ra in rotation_angles
         if nd > 2
             euler_rots = map(x->tformrotate(x...), zip(axs, ra))
-            rot = foldr(*, tfeye, euler_rots)
+            rot = foldr(∘, euler_rots; init=tfeye)
         elseif nd == 2
             rot = tformrotate(ra)
         else
             error("Unsupported dimensionality")
         end
-        push!(output, AffineMap(SD*rot.scalefwd/SD , zeros(nd))) #account for sample spacing
+        push!(output, AffineMap(SD*rot.linear/SD , zeros(nd))) #account for sample spacing
     end
     return output
 end
@@ -202,7 +203,7 @@ function rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD = 
             best_shift = [best_i.I...]
         end
     end
-    return tformtranslate(best_shift) * best_rot, best_mm
+    return tformtranslate(best_shift) ∘ best_rot, best_mm
 end
 
 function p2rigid(p, SD)
@@ -236,11 +237,11 @@ end
 function RigidValue(fixed::AbstractArray, moving::AbstractArray{T}, SD, thresh) where T<:Real
     f = copy(fixed)
     fnan = isnan.(f)
-    f[fnan] = 0
+    f[fnan] .= 0
     m = copy(moving)
     mnan = isnan.(m)
-    m[mnan] = 0
-    metp = extrapolate(interpolate!(m, BSpline(Quadratic(InPlace())), OnCell()), NaN)
+    m[mnan] .= 0
+    metp = extrapolate(interpolate!(m, BSpline(Quadratic(InPlace(OnCell())))), NaN)
     RigidValue{ndims(f),typeof(f),typeof(metp),typeof(SD)}(f, map(!, fnan), metp, SD, thresh)
 end
 
@@ -248,7 +249,7 @@ function (d::RigidValue)(x)
     tfm = p2rigid(x, d.SD)
     mov = transform(d.moving, tfm)
     movnan = isnan.(mov)
-    mov[movnan] = 0
+    mov[movnan] .= 0
     f = d.fixed.*map(!, movnan)
     m = mov.*d.wfixed
     den = sum(abs2, f) + sum(abs2, m)
@@ -269,7 +270,7 @@ end
 
 MathProgBase.eval_f(d::RigidOpt, x) = d.rv(x)
 MathProgBase.eval_grad_f(d::RigidOpt, grad_f, x) =
-    copy!(grad_f, d.g(x))
+    copyto!(grad_f, d.g(x))
 
 ###
 ### Globally-optimal initial guess for deformation given
@@ -792,14 +793,14 @@ end
 
 # This version re-packs variables as read from the .jld file
 function fixed_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePenalty{T,N}, λt, mmis::Array{Tf}; kwargs...) where {Tf<:Number,T,N}
-    csr = reshape(reinterpret(SVector{N,Tf}, vec(cs)), tail(size(cs)))
-    Qsr = reshape(reinterpret(similar_type(SArray,Tf,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
+    csr = unsafe_wrap(Array, convert(Ptr{SVector{N,Tf}}, pointer(cs)), (tail(size(cs))...,))
+    Qsr = unsafe_wrap(Array, convert(Ptr{similar_type(SArray,Tf,Size(N,N))}, pointer(Qs)), (tail(tail(size(Qs)))...,))
     if length(mmis) > 10^7
         L = length(mmis)*sizeof(Tf)/1024^3
         @printf "The mismatch data are %0.2f GB in size.\n  During optimization, the initial function evaluations may be limited by I/O and\n  could be very slow. Later evaluations should be faster.\n" L
     end
     ND = NumDenom{Tf}
-    mmisr = reshape(reinterpret(ND, vec(mmis)), tail(size(mmis)))
+    mmisr = unsafe_wrap(Array, convert(Ptr{ND}, pointer(mmis)), (tail(size(mmis))...,))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     fixed_λ(csr, Qsr, knots, ap, λt, mmisc; kwargs...)
 end
@@ -1210,7 +1211,7 @@ MathProgBase.features_available(d::SigmoidOpt) = [:Grad, :Jac, :Hess]
 MathProgBase.eval_f(d::SigmoidOpt, x) = sigpenalty(x, d.data)
 
 MathProgBase.eval_grad_f(d::SigmoidOpt, grad_f, x) =
-    copy!(grad_f, d.g(x))
+    copyto!(grad_f, d.g(x))
 
 function MathProgBase.hesslag_structure(d::SigmoidOpt)
     I, J = Int[], Int[]
@@ -1222,12 +1223,12 @@ function MathProgBase.hesslag_structure(d::SigmoidOpt)
 end
 
 function MathProgBase.eval_hesslag(d::SigmoidOpt, H, x, σ, μ)
-    copy!(H, σ * d.h(x))
+    copyto!(H, σ * d.h(x))
 end
 
 function sigpenalty(x, data)
     bottom, top, center, width = x[1], x[2], x[3], x[4]
-    sum(abs2, (data-bottom)/(top-bottom) - 1 ./(1+exp.(-(collect(1:length(data))-center)/width)))
+    sum(abs2, (data .- bottom) / (top-bottom) - 1 ./(1 .+ exp.(-(collect(1:length(data)) .- center)/width)))
 end
 
 @generated function RegisterCore.maxshift(A::CachedInterpolation{T,N}) where {T,N}
