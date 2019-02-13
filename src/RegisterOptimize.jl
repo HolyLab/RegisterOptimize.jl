@@ -3,28 +3,18 @@ module RegisterOptimize
 using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
 using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
 using RegisterMismatch
-using Printf, LinearAlgebra, Statistics
+using Printf, LinearAlgebra, Statistics, CoordinateTransformations
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
 using Base: tail
 
-using Images, CoordinateTransformations, QuadDIRECT # , RegisterMismatch for qd_rigid.jl
-
 import Base: *
-
-include("qd_rigid.jl")
 
 export
     auto_λ,
     auto_λt,
     fit_sigmoid,
     fixed_λ,
-    initial_deformation,
-    optimize_rigid,
-    grid_rotations,
-    rotation_gridsearch,
-    qd_translate,
-    qd_rigid,
-    qd_affine
+    initial_deformation
 
 """
 This module provides convenience functions for minimizing the mismatch

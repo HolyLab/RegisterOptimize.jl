@@ -1,3 +1,4 @@
+using ImageMagick
 using StaticArrays, Interpolations, Test
 import RegisterOptimize
 using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, RegisterFit
