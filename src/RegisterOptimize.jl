@@ -505,16 +505,16 @@ function MathProgBase.eval_grad_f(d::InitialDefOpt, grad_f, x)
 end
 
 function affine_part!(g, P::AffineQHessian{AP,M,N,Φ}, u) where {AP,M,N,Φ<:GridDeformation}
-    ϕ_c, g_c = compose(P.ϕ_old, GridDeformation(u, P.ϕ_old.knots))
+    ϕ_c, g_c = compose(P.ϕ_old, GridDeformation(u, P.ϕ_old.nodes))
     penalty!(g, P.ap, ϕ_c, g_c)
 end
 
 function affine_part!(::Nothing, P::AffineQHessian{AP,M,N,Φ}, u) where {AP,M,N,Φ<:GridDeformation}
     # Sadly, with GradientNumbers this gives an error I haven't traced
     # down (might be a Julia bug)
-    # ϕ_c = P.ϕ_old(GridDeformation(u, P.ϕ_old.knots))
+    # ϕ_c = P.ϕ_old(GridDeformation(u, P.ϕ_old.nodes))
     # penalty!(nothing, P.ap, ϕ_c)
-    u_c = RegisterDeformation._compose(P.ϕ_old.u, u, P.ϕ_old.knots)
+    u_c = RegisterDeformation._compose(P.ϕ_old.u, u, P.ϕ_old.nodes)
     penalty!(nothing, P.ap, u_c)
 end
 
@@ -568,7 +568,7 @@ function _optimize!(ϕ, ϕ_old, dp::DeformationPenalty, mmis, ::Type{BSpline{Lin
         s = eltype(gview)(stepsize/gmax)
         u = ϕ.u .- s .* g
         uclamp!(u, mxs)
-        ϕ1 = GridDeformation(u, ϕ.knots)
+        ϕ1 = GridDeformation(u, ϕ.nodes)
         p = penalty!(g, ϕ1, ϕ_old, dp, mmis)
         if p < pold
             copy!(ϕ.u, u)
@@ -727,16 +727,16 @@ function _copy!(ϕs::Vector{D}, x::Array{T}) where {D<:GridDeformation,T<:Number
 end
 
 """
-`ϕ, penalty = fixed_λ(cs, Qs, knots, affinepenalty, mmis)` computes an
+`ϕ, penalty = fixed_λ(cs, Qs, nodes, affinepenalty, mmis)` computes an
 optimal deformation `ϕ` and its total `penalty` (data penalty +
-regularization penalty).  `cs` and `Qs` come from `qfit`, `knots`
+regularization penalty).  `cs` and `Qs` come from `qfit`, `nodes`
 specifies the deformation grid, `affinepenalty` the `AffinePenalty`
 object for that grid, and `mmis` is the array-of-mismatch arrays
 (already interpolating, see `interpolate_mm!`).
 
 See also: `auto_λ`.
 """
-function fixed_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis; ϕs_old = identity, mu_init=0.1, kwargs...) where {T,N}
+function fixed_λ(cs, Qs, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis; ϕs_old = identity, mu_init=0.1, kwargs...) where {T,N}
     maxshift = map(x->(x-1)>>1, size(first(mmis)))
     u0, isconverged = initial_deformation(ap, cs, Qs)
     if !isconverged
@@ -746,7 +746,7 @@ function fixed_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis; ϕs_ol
         end
     end
     uclamp!(u0, maxshift)
-    ϕ = GridDeformation(u0, knots)
+    ϕ = GridDeformation(u0, nodes)
     local mismatch
     while mu_init > 1e-16
         ϕ, mismatch, mismatch0 = optimize!(ϕ, ϕs_old, ap, mmis, mu_strategy="monotone", mu_init=mu_init, kwargs...)
@@ -758,11 +758,11 @@ function fixed_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis; ϕs_ol
 end
 
 """
-`ϕs, penalty = fixed_λ(cs, Qs, knots, affinepenalty, λt, mmis)`
+`ϕs, penalty = fixed_λ(cs, Qs, nodes, affinepenalty, λt, mmis)`
 computes an optimal vector-of-deformations `ϕs` for an image sequence,
 using an temporal penalty coefficient `λt`.
 """
-function fixed_λ(cs::AbstractArray{SVector{N,T}}, Qs::AbstractArray{SMatrix{N,N,T,L}}, knots::NTuple{N}, ap::AffinePenalty{TP,N}, λt, mmis; ϕs_old = identity, mu_init=0.1, kwargs...) where {T,N,TP,L}
+function fixed_λ(cs::AbstractArray{SVector{N,T}}, Qs::AbstractArray{SMatrix{N,N,T,L}}, nodes::NTuple{N}, ap::AffinePenalty{TP,N}, λt, mmis; ϕs_old = identity, mu_init=0.1, kwargs...) where {T,N,TP,L}
     λtT = T(λt)
     apT = convert(AffinePenalty{T,N}, ap)
     maxshift = map(x->(x-1)>>1, size(first(mmis)))
@@ -774,14 +774,14 @@ function fixed_λ(cs::AbstractArray{SVector{N,T}}, Qs::AbstractArray{SMatrix{N,N
     end
     uclamp!(u0, maxshift)
     colons = ntuple(ColonFun, Val(N))
-    ϕs = [GridDeformation(u0[colons..., i], knots) for i = 1:size(u0)[end]]
+    ϕs = [GridDeformation(u0[colons..., i], nodes) for i = 1:size(u0)[end]]
     local mismatch
     println("Starting optimization.")
     optimize!(ϕs, ϕs_old, apT, λtT, mmis; kwargs...)
 end
 
 # This version re-packs variables as read from the .jld file
-function fixed_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePenalty{T,N}, λt, mmis::Array{Tf}; kwargs...) where {Tf<:Number,T,N}
+function fixed_λ(cs::Array{Tf}, Qs::Array{Tf}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, λt, mmis::Array{Tf}; kwargs...) where {Tf<:Number,T,N}
     csr = unsafe_wrap(Array, convert(Ptr{SVector{N,Tf}}, pointer(cs)), (tail(size(cs))...,))
     Qsr = unsafe_wrap(Array, convert(Ptr{similar_type(SArray,Tf,Size(N,N))}, pointer(Qs)), (tail(tail(size(Qs)))...,))
     if length(mmis) > 10^7
@@ -791,7 +791,7 @@ function fixed_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePena
     ND = NumDenom{Tf}
     mmisr = unsafe_wrap(Array, convert(Ptr{ND}, pointer(mmis)), (tail(size(mmis))...,))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
-    fixed_λ(csr, Qsr, knots, ap, λt, mmisc; kwargs...)
+    fixed_λ(csr, Qsr, nodes, ap, λt, mmisc; kwargs...)
 end
 
 ###
@@ -809,9 +809,9 @@ initial upslope of the sigmoid (indicating that the penalty is large
 enough to begin limiting the form of the deformation, but not yet to
 substantially decrease the quality of the registration).
 
-`ϕ, penalty, λ, datapenalty, quality = auto_λ(cs, Qs, knots, mmis,
+`ϕ, penalty, λ, datapenalty, quality = auto_λ(cs, Qs, nodes, mmis,
 (λmin, λmax))` is used if you've already computed mismatch data. `cs`
-and `Qs` come from `qfit`, `knots` specifies the deformation grid, and
+and `Qs` come from `qfit`, `nodes` specifies the deformation grid, and
 `mmis` is the array-of-mismatch arrays (already interpolating, see
 `interpolate_mm!`).
 
@@ -826,7 +826,7 @@ tested `λ` value, and `quality` an estimate (possibly broken) of the
 fidelity of the sigmoidal fit.
 
 If you have data for an image sequence, `auto_λ(stackindex, cs, Qs,
-knots, mmis, (λmin, λmax))` will perform the analysis on the chosen
+nodes, mmis, (λmin, λmax))` will perform the analysis on the chosen
 `stackindex`.
 
 See also: `fixed_λ`. Because `auto_λ` performs the optimization
@@ -842,39 +842,39 @@ function auto_λ(fixed::AbstractArray{R}, moving::AbstractArray{S}, gridsize::NT
         rethrow()
     end
     cs, Qs, mmis = mms2fit(mms, thresh)
-    knots = map(d->range(1, stop=size(fixed,d), length=gridsize[d]), (1:ndims(fixed)...,))::NTuple{N, LinSpace{Float64}}
-    auto_λ(cs, Qs, knots, mmis, λrange; kwargs...)
+    nodes = map(d->range(1, stop=size(fixed,d), length=gridsize[d]), (1:ndims(fixed)...,))::NTuple{N, LinSpace{Float64}}
+    auto_λ(cs, Qs, nodes, mmis, λrange; kwargs...)
 end
 
-function auto_λ(cs, Qs, knots::NTuple{N}, mmis, λrange; kwargs...) where N
-    ap = AffinePenalty{Float64,N}(knots, λrange[1])  # default to affine-residual penalty, Ipopt needs Float64
-    auto_λ(cs, Qs, knots, ap, mmis, λrange; kwargs...)
+function auto_λ(cs, Qs, nodes::NTuple{N}, mmis, λrange; kwargs...) where N
+    ap = AffinePenalty{Float64,N}(nodes, λrange[1])  # default to affine-residual penalty, Ipopt needs Float64
+    auto_λ(cs, Qs, nodes, ap, mmis, λrange; kwargs...)
 end
 
-function auto_λ(stackidx::Integer, cs, Qs, knots::NTuple{N}, mmis, λrange; kwargs...) where N
+function auto_λ(stackidx::Integer, cs, Qs, nodes::NTuple{N}, mmis, λrange; kwargs...) where N
     cs1 = cs[ntuple(d->Colon(),ndims(cs)-1)..., stackidx];
     Qs1 = Qs[ntuple(d->Colon(),ndims(Qs)-1)..., stackidx];
     mmis1 = mmis[ntuple(d->Colon(),ndims(mmis)-1)..., stackidx];
-    auto_λ(cs1, Qs1, knots, mmis1, λrange; kwargs...)
+    auto_λ(cs1, Qs1, nodes, mmis1, λrange; kwargs...)
 end
 
-function auto_λ(cs::Array{Tf}, Qs::Array{Tf}, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Tf}, λrange; kwargs...) where {Tf<:Number,T,N}
+function auto_λ(cs::Array{Tf}, Qs::Array{Tf}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Tf}, λrange; kwargs...) where {Tf<:Number,T,N}
     # Ipopt requires Float64
-    auto_λ(convert(Array{Float64}, cs), convert(Array{Float64}, Qs), knots, ap, convert(Array{Float64}, mmis), λrange; kwargs...)
+    auto_λ(convert(Array{Float64}, cs), convert(Array{Float64}, Qs), nodes, ap, convert(Array{Float64}, mmis), λrange; kwargs...)
 end
 
-function auto_λ(cs::Array{Float64}, Qs::Array{Float64}, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Float64}, λrange; kwargs...) where {T,N}
+function auto_λ(cs::Array{Float64}, Qs::Array{Float64}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Float64}, λrange; kwargs...) where {T,N}
     csr = reshape(reinterpret(SVector{N,Float64}, vec(cs)), tail(size(cs)))
     Qsr = reshape(reinterpret(similar_type(SArray,Float64,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
     mmisr = reshape(reinterpret(NumDenom{Float64}, vec(mmis)), tail(size(mmis)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     ap64 = convert(AffinePenalty{Float64,N}, ap)
-    auto_λ(csr, Qsr, knots, ap64, mmisc, λrange; kwargs...)
+    auto_λ(csr, Qsr, nodes, ap64, mmisc, λrange; kwargs...)
 end
 
-function auto_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange; kwargs...) where {T,N}
+function auto_λ(cs, Qs, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange; kwargs...) where {T,N}
     λmin, λmax = λrange
-    gridsize = map(length, knots)
+    gridsize = map(length, nodes)
     uc = zeros(T, N, gridsize...)
     for i in CartesianIndices(gridsize)
         uc[:,i] = convert(Vector{T}, cs[i])
@@ -891,7 +891,7 @@ function auto_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange
     ap.λ = λ = λmin
     maxshift = map(x->(x-1)>>1, size(first(mmis)))
     uclamp!(uc, maxshift)
-    ϕprev = GridDeformation(uc, knots)
+    ϕprev = GridDeformation(uc, nodes)
     mu_init = 0.1
     ϕprev, penaltyprev = optimizer!(ϕprev, mu_init)
     u0, isconverged = initial_deformation(ap, cs, Qs)
@@ -899,7 +899,7 @@ function auto_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange
         Base.warn_once("initial_deformation failed to converge with λ = ", λ)
     end
     uclamp!(u0, maxshift)
-    ϕap = GridDeformation(u0, knots)
+    ϕap = GridDeformation(u0, nodes)
     ϕap, penaltyap = optimizer!(ϕap, mu_init)
     n = ceil(Int, log2(λmax) - log2(λmin))
     λ_all = Vector{typeof(λmin)}(undef, n)
@@ -921,14 +921,14 @@ function auto_λ(cs, Qs, knots::NTuple{N}, ap::AffinePenalty{T,N}, mmis, λrange
     @showprogress 1 "Calculating penalty vs. λ: " for i = 2:n
         λ *= 2
         ap.λ = λ
-        ϕprev = GridDeformation(copy(ϕ_all[end].u), knots)
+        ϕprev = GridDeformation(copy(ϕ_all[end].u), nodes)
         ϕprev, penaltyprev = optimizer!(ϕprev, mu_init)
         u0, isconverged = initial_deformation(ap, cs, Qs)
         if !isconverged
             Base.warn_once("initial_deformation failed to converge with λ = ", λ)
         end
         uclamp!(u0, maxshift)
-        ϕap = GridDeformation(u0, knots)
+        ϕap = GridDeformation(u0, nodes)
         ϕap, penaltyap = optimizer!(ϕap, mu_init)
         if penaltyprev < penaltyap
             penalty_all[i] = penaltyprev
@@ -1037,12 +1037,12 @@ end
 
 function vec2vecϕ(Qs::Array{SMatrix{N,N,T,L}}, x::AbstractVector{T}) where {T,N,L}
     xf = convert_to_fixed(SVector{N,T}, x, size(Qs))
-    _vec2vecϕ(xf, Base.front(size(Qs)))
+    _vec2vecϕ(xf, Base.front(axes(Qs)))
 end
 
-@noinline function _vec2vecϕ(x::AbstractArray, sz::NTuple{N,Int}) where N
+@noinline function _vec2vecϕ(x::AbstractArray, axs::NTuple{N,<:AbstractUnitRange}) where N
     colons = ntuple(ColonFun, Val(N))
-    [GridDeformation(view(x, colons..., i), sz) for i = 1:size(x)[end]]
+    [GridDeformation(view(x, colons..., i), axs) for i = 1:size(x)[end]]
 end
 
 
@@ -1051,7 +1051,7 @@ end
 ###
 ### NOTE: not updated yet, probably broken
 """
-`tform = optimize(tform0, mms, knots)` performs descent-based
+`tform = optimize(tform0, mms, nodes)` performs descent-based
 minimization of the total mismatch penalty as a function of the
 parameters of an affine transformation, starting from an initial guess
 `tform0`.  While this is unlikely to yield very accurate results for
@@ -1060,7 +1060,7 @@ such cases), it can be helpful for polishing small deformations.
 
 For a good initial guess, see `mismatch2affine`.
 """
-function optimize(tform::AffineMap, mmis, knots)
+function optimize(tform::AffineMap, mmis, nodes)
     gridsize = size(mmis)
     N = length(gridsize)
     ndims(tform) == N || error("Dimensionality of tform is $(ndims(tform)), which does not match $N for nums/denoms")
@@ -1068,11 +1068,11 @@ function optimize(tform::AffineMap, mmis, knots)
     mxs = maxshift(mm)
     T = eltype(eltype(mm))
     # Compute the bounds
-    asz = arraysize(knots)
+    asz = arraysize(nodes)
     center = T[(asz[i]+1)/2 for i = 1:N]
     X = zeros(T, N+1, prod(gridsize))
-    for (i, knot) in enumerate(eachknot(knots))
-        X[1:N,i] = knot - center
+    for (i, node) in enumerate(eachnode(nodes))
+        X[1:N,i] = node - center
         X[N+1,i] = 1
     end
     bound = convert(Vector{T}, [mxs .- register_half; Inf])
