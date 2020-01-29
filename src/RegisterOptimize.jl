@@ -2,7 +2,6 @@ module RegisterOptimize
 
 using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
 using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
-using RegisterMismatch
 using Printf, LinearAlgebra, Statistics, CoordinateTransformations
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
 using Base: tail
