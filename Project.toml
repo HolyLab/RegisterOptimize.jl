@@ -1,7 +1,7 @@
 name = "RegisterOptimize"
 uuid = "b981a1b5-4587-53b0-9c3d-454c648f6f8d"
 authors = ["Tim Holy <tim.holy@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
 
 [deps]
 CachedInterpolations = "b9709bfb-d23d-5560-8276-8c35c4b76823"
@@ -27,7 +27,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 CachedInterpolations = "0.1"
-CenterIndexedArrays = "0.1, 0.2"
+CenterIndexedArrays = "0.2"
 CoordinateTransformations = "0.5"
 ForwardDiff = "0.10"
 Interpolations = "0.9, 0.10, 0.11, 0.12"
@@ -37,11 +37,12 @@ MathProgBase = "0.7"
 NLsolve = "3, 4"
 Optim = "0.18, 0.19, 0.20"
 ProgressMeter = "0.7, 0.8, 0.9, 1"
-RegisterCore = "0.1, 0.2"
+RegisterCore = "0.2.1"
 RegisterDeformation = "0.3"
 RegisterFit = "0.1"
-RegisterPenalty = "0.1"
+RegisterPenalty = "0.1, 0.2"
 StaticArrays = "0.10, 0.11, 0.12"
+julia = "1.1"
 
 [extras]
 ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
