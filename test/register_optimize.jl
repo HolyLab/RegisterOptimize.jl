@@ -60,8 +60,8 @@ function initial_guess_direct(A, λt, cs::Array{Tc,3}, Qs::Array{TQ,3}) where {T
     reshape(reinterpret(SVector{2,Float64}, vec(x)), size(Qs))
 end
 
-function build_A(knots, λ)
-    ap = AffinePenalty(knots, λ)
+function build_A(nodes, λ)
+    ap = AffinePenalty(nodes, λ)
     FF = ap.F*ap.F'
     nA = 2*size(FF,1)
     FF2 = zeros(nA,nA)
@@ -72,16 +72,16 @@ function build_A(knots, λ)
 end
 
 @testset "Register Optimize" begin
-    knots = (range(1, stop=20, length=4),range(1, stop=15, length=4))
-    A, ap = build_A(knots, 1.0)
-    gridsize = map(length, knots)
+    nodes = (range(1, stop=20, length=4),range(1, stop=15, length=4))
+    A, ap = build_A(nodes, 1.0)
+    gridsize = map(length, nodes)
     Qs = Array{Any}(undef, gridsize)
     cs = Array{Any}(undef, gridsize)
 
     # Known exact answer
     tfm = tformrotate(pi/12)
-    for (i,knot) in enumerate(eachknot(knots))
-        v = [knot[1],knot[2]]
+    for (i,node) in enumerate(eachnode(nodes))
+        v = [node[1],node[2]]
         cs[i] = tfm(v)-v
         Qs[i] = Matrix{Float64}(I,2,2)
     end
@@ -102,8 +102,8 @@ end
         @test ≈(ux[I], cs[I], atol=1e-3)
     end
     # Ensure that λ=0 gives the right initialization
-    knots0 = (range(1, stop=3, length=3),)
-    ap0 = AffinePenalty(knots0, 0.0)
+    nodes0 = (range(1, stop=3, length=3),)
+    ap0 = AffinePenalty(nodes0, 0.0)
     cs0 = Any[[17.0], [-44.0], [12.0]] # Vector{Float64}[[17.0], [-44.0], [12.0]]
     Qs0 = [reshape([1], 1, 1) for i = 1:3]
     u0, isconverged = @inferred(RegisterOptimize.initial_deformation(ap0, cs0, Qs0))
@@ -166,8 +166,8 @@ end
     # # We use a larger grid because the edges are suspect
     # arraysize = (100,80)
     # gridsize = (7,6)
-    # knots = (linspace(1,arraysize[1],gridsize[1]),linspace(1,arraysize[2],gridsize[2]))
-    # A, ap = build_A(knots, 1.0)
+    # nodes = (linspace(1,arraysize[1],gridsize[1]),linspace(1,arraysize[2],gridsize[2]))
+    # A, ap = build_A(nodes, 1.0)
     # Qs = Array{Any}(gridsize)
     # cs = Array{Any}(gridsize)
     # for I in CartesianRange(gridsize)
@@ -178,9 +178,9 @@ end
     # ux = initial_guess_direct(A, cs, Qs)
     # # First, a trivial deformation
     # u_old = zeros(2, gridsize...)
-    # ϕ_old = interpolate(GridDeformation(u_old, knots))
+    # ϕ_old = interpolate(GridDeformation(u_old, nodes))
     # u = RegisterOptimize.initial_deformation(ap, cs, Qs, ϕ_old, (10,10))
-    # ϕ_c = ϕ_old(GridDeformation(u, knots))
+    # ϕ_c = ϕ_old(GridDeformation(u, nodes))
     # for I in eachindex(ux)
     #     @test ϕ_c.u[I] ≈ ux[I]
     # end
@@ -202,8 +202,8 @@ end
     # csi = similar(cs)
     # Qsi = similar(Qs)
     # arrayc = [map(x->(x+1)/2, arraysize)...]
-    # for (i,knot) in enumerate(eachknot(knots))
-    #     x = convert(Vector, knot) + cs[i] - arrayc
+    # for (i,node) in enumerate(eachnode(nodes))
+    #     x = convert(Vector, node) + cs[i] - arrayc
     #     csi[i] = tfm\x - x
     #     Qsi[i] = tfm.scalefwd*Qs[i]*tfm.scalefwd'
     # end
@@ -217,7 +217,7 @@ end
     # error("stop")
     # @test size(u) == size(ux)
     # @test eltype(u) == SVector{2,Float64}
-    # ϕ_c = ϕ_old(GridDeformation(u, knots))
+    # ϕ_c = ϕ_old(GridDeformation(u, nodes))
     # for I in eachindex(ux)
     #     @test ϕ_c.u[I] ≈ ux[I]
     # end
@@ -229,18 +229,18 @@ end
     ###
 
     # Set up an affine transformation and put the optimal shift
-    # in each block at the corresponding shifted-knot position
+    # in each block at the corresponding shifted-node position
     S = Matrix{Float64}(I,2,2) + 0.1*rand(2,2)
     imgsz = (100,80)
     gridsize = (7,5)
     cntr = ([imgsz...].+1)/2
     tform = AffineMap(S, zeros(2))
-    knots = (range(1, stop=imgsz[1], length=gridsize[1]), range(1, stop=imgsz[2], length=gridsize[2]))
+    nodes = (range(1, stop=imgsz[1], length=gridsize[1]), range(1, stop=imgsz[2], length=gridsize[2]))
     shifts = Array{Any}(undef, gridsize)
     mxsv = zeros(2)
-    for (i,knot) in enumerate(eachknot(knots))
-        knotv = [knot...]-cntr
-        dx = tform(knotv) - knotv
+    for (i,node) in enumerate(eachnode(nodes))
+        nodev = [node...]-cntr
+        dx = tform(nodev) - nodev
         mxsv = max.(mxsv, abs.(dx))
         shifts[i] = dx
     end
@@ -257,9 +257,9 @@ end
 
     u = randn(2, gridsize...)
     RegisterFit.uclamp!(u, (m>>1, n>>1))
-    ϕ = GridDeformation(u, knots)
+    ϕ = GridDeformation(u, nodes)
     λ = 1000.0
-    dp = AffinePenalty(knots, λ)
+    dp = AffinePenalty(nodes, λ)
     ϕ, fval = RegisterOptimize.optimize!(ϕ, identity, dp, mmis) #; print_level=5)
     @test 0 <= fval <= 1e-5
     for I in eachindex(shifts)
@@ -275,10 +275,10 @@ end
     denom = ones(15,15)
     mms = tighten([quadratic(cs[:,t], Qs[:,:,t], denom) for i = 1:gridsize[1], j = 1:gridsize[2], t = 1:3])
     mmis = RegisterPenalty.interpolate_mm!(mms)
-    knots = (range(1, stop=100, length=gridsize[1]), range(1, stop=99, length=gridsize[2]))
-    ap = RegisterPenalty.AffinePenalty(knots, 1.0)
+    nodes = (range(1, stop=100, length=gridsize[1]), range(1, stop=99, length=gridsize[2]))
+    ap = RegisterPenalty.AffinePenalty(nodes, 1.0)
     u = randn(2, gridsize..., 3)
-    ϕs = tighten([GridDeformation(u[:,:,:,t], knots) for t = 1:3])
+    ϕs = tighten([GridDeformation(u[:,:,:,t], nodes) for t = 1:3])
     g = similar(u)
     ϕs, fval = RegisterOptimize.optimize!(ϕs, identity, ap, 1.0, mmis)
     c = 1/prod(gridsize)  # not sure about this
@@ -297,11 +297,11 @@ end
     # Optimization with linear interpolation of mismatch data
     fixed = 1:8
     moving = fixed .+ 1
-    knots = (range(1, stop=8, length=3),)
+    nodes = (range(1, stop=8, length=3),)
     aperture_centers = [(1.0,), (4.5,), (8.0,)]
     aperture_width = (3.5,)
     mxshift = (2,)
-    gridsize = map(length, knots)
+    gridsize = map(length, nodes)
     mms = mismatch_apertures(fixed, moving, aperture_centers, aperture_width, mxshift; normalization=:pixels)
     E0 = zeros(size(mms))
     cs = Array{Any}(undef, size(mms))
@@ -312,8 +312,8 @@ end
     end
     mmis = interpolate_mm!(mms, BSpline(Linear()))
     λ = 0.001
-    ap = AffinePenalty{Float64,ndims(fixed)}(knots, λ)
-    ϕ, mismatch = RegisterOptimize.fixed_λ(cs, Qs, knots, ap, mmis)
+    ap = AffinePenalty{Float64,ndims(fixed)}(nodes, λ)
+    ϕ, mismatch = RegisterOptimize.fixed_λ(cs, Qs, nodes, ap, mmis)
     @test mismatch < 1e-4
     for i = 1:3
         @test -1.01 <= ϕ.u[i][1] <= -0.99
