@@ -313,7 +313,7 @@ function _initial_deformation(ap::AffinePenalty{T,N}, cs, Qs) where {T,N}
     Array(convert_to_fixed(SVector{N,T}, x, size(cs))), isconverged
 end
 
-cs2u(::Type{V}, cs) where {V} = [V((c...,)) for c in cs]
+cs2u(::Type{V}, cs) where {V} = V[V((c...,)) for c in cs]
 
 function initial_deformation(ap::AffinePenalty{T,N}, cs::AbstractArray{V}, Qs::AbstractArray{M}) where {T,N,V<:SVector,M<:SMatrix}
     Tv = eltype(V)
