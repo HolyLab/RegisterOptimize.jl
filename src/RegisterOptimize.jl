@@ -749,7 +749,7 @@ function fixed_λ(cs, Qs, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis; ϕs_ol
     ϕ = GridDeformation(u0, nodes)
     local mismatch
     while mu_init > 1e-16
-        ϕ, mismatch, mismatch0 = optimize!(ϕ, ϕs_old, ap, mmis, mu_strategy="monotone", mu_init=mu_init, kwargs...)
+        ϕ, mismatch, mismatch0 = optimize!(ϕ, ϕs_old, ap, mmis; mu_strategy="monotone", mu_init=mu_init, kwargs...)
         mismatch <= mismatch0 && break
         mu_init /= 10
         @show mu_init
