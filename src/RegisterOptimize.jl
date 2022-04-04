@@ -605,7 +605,7 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
     MathProgBase.loadproblem!(m, length(uvec), 0, -ub, ub, T[], T[], :Min, objective)
     MathProgBase.setwarmstart!(m, uvec)
     fval0 = MathProgBase.eval_f(objective, uvec)
-    @show uvec
+    @show uvec fval0
     isfinite(fval0) || error("Initial value must be finite")
     MathProgBase.optimize!(m)
 
