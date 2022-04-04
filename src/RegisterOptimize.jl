@@ -100,8 +100,8 @@ function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
     MathProgBase.optimize!(m)
 
     stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
     p = MathProgBase.getsolution(m)
+    stat == :Optimal || (@warn("Solution was not optimal"); @show p)
     fval = MathProgBase.getobjval(m)
 
     p2rigid(p, SD), fval
