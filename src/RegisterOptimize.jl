@@ -605,12 +605,13 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
     MathProgBase.loadproblem!(m, length(uvec), 0, -ub, ub, T[], T[], :Min, objective)
     MathProgBase.setwarmstart!(m, uvec)
     fval0 = MathProgBase.eval_f(objective, uvec)
+    @show uvec
     isfinite(fval0) || error("Initial value must be finite")
     MathProgBase.optimize!(m)
 
     stat = MathProgBase.status(m)
     uopt = MathProgBase.getsolution(m)
-    stat == :Optimal || (@warn("Solution was not optimal 3"); @show uvec uopt)
+    stat == :Optimal || (@warn("Solution was not optimal 3"); @show uopt)
     fval = MathProgBase.getobjval(m)
     _copy!(ϕ, uopt)
     ϕ, fval, fval0
