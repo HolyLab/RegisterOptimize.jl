@@ -610,7 +610,7 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
 
     stat = MathProgBase.status(m)
     uopt = MathProgBase.getsolution(m)
-    stat == :Optimal || (@warn("Solution was not optimal 3"); @show uopt)
+    stat == :Optimal || (@warn("Solution was not optimal 3"); @show uvec uopt)
     fval = MathProgBase.getobjval(m)
     _copy!(ϕ, uopt)
     ϕ, fval, fval0
