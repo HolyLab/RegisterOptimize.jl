@@ -313,7 +313,7 @@ end
     mmis = interpolate_mm!(mms, BSpline(Linear()))
     λ = 0.001
     ap = AffinePenalty{Float64,ndims(fixed)}(nodes, λ)
-    ϕ, mismatch = RegisterOptimize.fixed_λ(cs, Qs, nodes, ap, mmis)
+    ϕ, mismatch = RegisterOptimize.fixed_λ(cs, Qs, nodes, ap, mmis; max_iter = 6000)
     @test mismatch < 1e-4
     for i = 1:3
         @test -1.01 <= ϕ.u[i][1] <= -0.99
