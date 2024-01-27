@@ -1,6 +1,8 @@
 module RegisterOptimize
 
-using MathProgBase, Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
+import MathOptInterface as MOI
+using JuMP: JuMP, Model, optimizer_with_attributes, @variable, @objective, @operator, @constraint, termination_status, LOCALLY_SOLVED
+using Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
 using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
 using Printf, LinearAlgebra, Statistics, CoordinateTransformations
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
@@ -32,31 +34,31 @@ The main functions are:
 RegisterOptimize
 
 
-# Some conveniences for MathProgBase
-abstract type GradOnly <: MathProgBase.AbstractNLPEvaluator end
+# Some conveniences for MOI
+abstract type GradOnly <: MOI.AbstractNLPEvaluator end
 
-function MathProgBase.initialize(d::GradOnly, requested_features::Vector{Symbol})
+function MOI.initialize(d::GradOnly, requested_features::Vector{Symbol})
     for feat in requested_features
         if !(feat in [:Grad, :Jac])
             error("Unsupported feature $feat")
         end
     end
 end
-MathProgBase.features_available(d::GradOnly) = [:Grad, :Jac]
+MOI.features_available(d::GradOnly) = [:Grad, :Jac]
 
 
 abstract type GradOnlyBoundsOnly <: GradOnly end
 
-MathProgBase.eval_g(::GradOnlyBoundsOnly, g, x) = nothing
-MathProgBase.jac_structure(::GradOnlyBoundsOnly) = Int[], Int[]
-MathProgBase.eval_jac_g(::GradOnlyBoundsOnly, J, x) = nothing
+MOI.eval_objective_gradient(::GradOnlyBoundsOnly, g, x) = nothing
+MOI.jacobian_structure(::GradOnlyBoundsOnly) = Int[], Int[]
+MOI.eval_constraint_jacobian(::GradOnlyBoundsOnly, J, x) = nothing
 
 
-abstract type BoundsOnly <: MathProgBase.AbstractNLPEvaluator end
+abstract type BoundsOnly <: MOI.AbstractNLPEvaluator end
 
-MathProgBase.eval_g(::BoundsOnly, g, x) = nothing
-MathProgBase.jac_structure(::BoundsOnly) = Int[], Int[]
-MathProgBase.eval_jac_g(::BoundsOnly, J, x) = nothing
+MOI.eval_objective_gradient(::BoundsOnly, g, x) = nothing
+MOI.jacobian_structure(::BoundsOnly) = Int[], Int[]
+MOI.eval_constraint_jacobian(::BoundsOnly, J, x) = nothing
 
 
 ###
@@ -88,21 +90,21 @@ function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
     T = eltype(p0)
 
     # Set up and run the solver
-    solver = IpoptSolver(hessian_approximation="limited-memory",
-                         print_level=print_level,
-                         sb="yes",
-                         tol=tol,
-                         max_iter=max_iter)
-    m = MathProgBase.NonlinearModel(solver)
-    ub = T[fill(maxrot, length(p0)-length(maxshift)); [maxshift...]]
-    MathProgBase.loadproblem!(m, length(p0), 0, -ub, ub, T[], T[], :Min, objective)
-    MathProgBase.setwarmstart!(m, p0)
-    MathProgBase.optimize!(m)
+    model = Model(optimizer_with_attributes(Ipopt.Optimizer, "hessian_approximation" => "limited-memory",
+                                             "print_level" => print_level,
+                                             "tol" => tol,
+                                             "max_iter" => max_iter,
+                                             "sb" => "yes"))
 
-    stat = MathProgBase.status(m)
+    ub = T[fill(maxrot, length(p0)-length(maxshift)); [maxshift...]]
+    MOI.loadproblem!(model, length(p0), 0, -ub, ub, T[], T[], :Min, objective)
+    MOI.setwarmstart!(model, p0)
+    MOI.optimize!(model)
+
+    stat = MOI.status(model)
     stat == :Optimal || @warn("Solution was not optimal")
-    p = MathProgBase.getsolution(m)
-    fval = MathProgBase.getobjval(m)
+    p = MOI.getsolution(model)
+    fval = MOI.getobjval(model)
 
     p2rigid(p, SD), fval
 end
@@ -215,7 +217,7 @@ to_float(::Type{T}, A, B) where {T} = convert(Array{Float32}, A), convert(Array{
 ###
 ### Rigid registration from raw images, MathProg interface
 ###
-mutable struct RigidValue{N,A<:AbstractArray,I<:AbstractExtrapolation,SDT} <: MathProgBase.AbstractNLPEvaluator
+mutable struct RigidValue{N,A<:AbstractArray,I<:AbstractExtrapolation,SDT} <: MOI.AbstractNLPEvaluator
     fixed::A
     wfixed::A
     moving::I
@@ -257,8 +259,8 @@ function RigidOpt(fixed, moving, SD, thresh)
     RigidOpt(rv, g)
 end
 
-MathProgBase.eval_f(d::RigidOpt, x) = d.rv(x)
-MathProgBase.eval_grad_f(d::RigidOpt, grad_f, x) =
+MOI.eval_objective(d::RigidOpt, x) = d.rv(x)
+MOI.eval_objective_gradient(d::RigidOpt, grad_f, x) =
     copyto!(grad_f, d.g(x))
 
 ###
@@ -466,22 +468,22 @@ function find_opt(P::AffineQHessian{AP,M,N,Φ}, b, maxshift, x0) where {AP,M,N,�
     solver = IpoptSolver(hessian_approximation="limited-memory",
                          print_level=0,
                          sb="yes")
-    m = MathProgBase.NonlinearModel(solver)
+    m = MOI.NonlinearModel(solver)
     T = eltype(b)
     n = length(b)
     ub1 = T[maxshift...] - T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(n, length(maxshift))])
-    MathProgBase.loadproblem!(m, n, 0, -ub, ub, T[], T[], :Min, objective)
-    MathProgBase.setwarmstart!(m, x0)
-    MathProgBase.optimize!(m)
-    stat = MathProgBase.status(m)
+    MOI.loadproblem!(m, n, 0, -ub, ub, T[], T[], :Min, objective)
+    MOI.setwarmstart!(m, x0)
+    MOI.optimize!(m)
+    stat = MOI.status(m)
     stat == :Optimal || @warn("Solution was not optimal")
-    MathProgBase.getsolution(m)
+    MOI.getsolution(m)
 end
 
 # We omit the constant term ∑_i cs[i]'*Qs[i]*cs[i], since it won't
 # affect the solution
-MathProgBase.eval_f(d::InitialDefOpt, x::AbstractVector) =
+MOI.eval_objective(d::InitialDefOpt, x::AbstractVector) =
     _eval_f(d.P, d.b, x)
 
 function _eval_f(P::AffineQHessian{AffinePenalty{T,N}}, b, x::AbstractVector) where {T,N}
@@ -499,7 +501,7 @@ function _eval_f(P::AffineQHessian{AffinePenalty{T,N}}, b, x::AbstractVector) wh
     val
 end
 
-function MathProgBase.eval_grad_f(d::InitialDefOpt, grad_f, x)
+function MOI.eval_objective_gradient(d::InitialDefOpt, grad_f, x)
     P, b = d.P, d.b
     copy!(grad_f, P*x-b)
 end
@@ -594,30 +596,35 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
     T = eltype(uvec)
     mxs = maxshift(first(mmis))
 
-    solver = IpoptSolver(;hessian_approximation="limited-memory",
-                         print_level=print_level,
-                         sb="yes",
-                         tol=tol, kwargs...)
-    m = MathProgBase.NonlinearModel(solver)
+    model = Model(optimizer_with_attributes(Ipopt.Optimizer,
+                                            "hessian_approximation" => "limited-memory",
+                                            "print_level" => print_level,
+                                            "sb" => "yes",
+                                            "tol" => tol,
+                                            kwargs...))
+
     ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
-    MathProgBase.loadproblem!(m, length(uvec), 0, -ub, ub, T[], T[], :Min, objective)
-    MathProgBase.setwarmstart!(m, uvec)
-    fval0 = MathProgBase.eval_f(objective, uvec)
+    N = length(ub)
+    @variable(model, -ub[i] <= x[i in 1:N] <= ub[i], start = uvec[i])
+    @operator(model, op_objective, N, (x...) -> MOI.eval_objective(objective, collect(x)))
+    @objective(model, Min, op_objective(x...))
+    fval0 =  MOI.eval_objective(objective, uvec)
     isfinite(fval0) || error("Initial value must be finite")
-    MathProgBase.optimize!(m)
+    JuMP.optimize!(model)
 
-    stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
-    uopt = MathProgBase.getsolution(m)
-    fval = MathProgBase.getobjval(m)
+    stat = termination_status(model)
+    stat == LOCALLY_SOLVED || @warn("Solution was not optimal")
+    uopt = JuMP.value.(x)
+    fval = JuMP.objective_value(model)
     _copy!(ϕ, uopt)
     ϕ, fval, fval0
 end
 
-function u_as_vec(ϕ::GridDeformation{T,N}) where {T,N}
+function u_as_vec(ϕ::GridDeformation{S,N}, ::Type{T}=eltype(ϕ)) where {S,N,T}
+    R = promote_type(S, T)
     n = length(ϕ.u)
-    uvec = reshape(reinterpret(T, vec(ϕ.u)), (n*N,))
+    return convert(AbstractVector{R}, reshape(reinterpret(S, vec(ϕ.u)), (n*N,)))
 end
 
 function vec_as_u(g::Array{T}, ϕ::GridDeformation{T,N}) where {T,N}
@@ -630,14 +637,14 @@ function _copy!(ϕ::GridDeformation, x)
 end
 
 # Sequence of deformations
-function u_as_vec(ϕs::Vector{D}) where D<:GridDeformation
-    T = eltype(D)
+function u_as_vec(ϕs::Vector{D}, ::Type{T}=eltype(D)) where {D<:GridDeformation,T}
+    S = promote_type(T, eltype(D))
     N = ndims(D)
     ngrid = length(first(ϕs).u)
     n = N*ngrid
-    uvec = Vector{T}(undef, n*length(ϕs))
+    uvec = Vector{S}(undef, n*length(ϕs))
     for (i, ϕ) in enumerate(ϕs)
-        copyto!(uvec, (i-1)*n+1, reshape(reinterpret(T, vec(ϕ.u)), (n,)), 1, n)
+        copyto!(uvec, (i-1)*n+1, reshape(reinterpret(eltype(D), vec(ϕ.u)), (n,)), 1, n)
     end
     uvec
 end
@@ -649,14 +656,17 @@ mutable struct DeformOpt{D,Dold,DP,M} <: GradOnlyBoundsOnly
     dp::DP
     mmis::M
 end
+# (d::DeformOpt)(x) = MOI.eval_objective(d, x)
 
-function MathProgBase.eval_f(d::DeformOpt, x)
-    uvec = u_as_vec(d.ϕ)
-    copyto!(uvec, copy(x))
+function MOI.eval_objective(d::DeformOpt, x::AbstractVector{<:Real})
+    uvec = u_as_vec(d.ϕ)#, eltype(x))
+    copyto!(uvec, x)
     penalty!(nothing, d.ϕ, d.ϕ_old, d.dp, d.mmis)
 end
 
-function MathProgBase.eval_grad_f(d::DeformOpt, grad_f, x)
+function MOI.eval_objective_gradient(d::DeformOpt, grad_f, x)
+    @show x grad_f
+    error("stop")
     uvec = u_as_vec(d.ϕ)
     copyto!(uvec, x)
     penalty!(vec_as_u(grad_f, d.ϕ), d.ϕ, d.ϕ_old, d.dp, d.mmis)
@@ -679,8 +689,8 @@ function optimize!(ϕs, ϕs_old, dp::AffinePenalty, λt, mmis; kwargs...)
     T = eltype(eltype(first(mmis)))
     objective = DeformTseriesOpt(ϕs, ϕs_old, dp, λt, mmis)
     uvec = u_as_vec(ϕs)
-    df = OnceDifferentiable(x->MathProgBase.eval_f(objective, x),
-                                (g,x)->MathProgBase.eval_grad_f(objective, g, x),uvec)
+    df = OnceDifferentiable(x->MOI.eval_objective(objective, x),
+                                (g,x)->MOI.eval_objective_gradient(objective, g, x),uvec)
     mxs = maxshift(first(mmis))
     ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
@@ -703,14 +713,14 @@ mutable struct DeformTseriesOpt{D,Dsold,DP,T,M} <: GradOnlyBoundsOnly
     mmis::M
 end
 
-# Using MathProgBase is a legacy of the old Ipopt interface, but
+# Using MOI is a legacy of the old Ipopt interface, but
 # keeping it doesn't hurt anything.
-function MathProgBase.eval_f(d::DeformTseriesOpt, x)
+function MOI.eval_objective(d::DeformTseriesOpt, x)
     _copy!(d.ϕs, x)
     penalty!(nothing, d.ϕs, d.ϕs_old, d.dp, d.λt, d.mmis)
 end
 
-function MathProgBase.eval_grad_f(d::DeformTseriesOpt, grad_f, x)
+function MOI.eval_objective_gradient(d::DeformTseriesOpt, grad_f, x)
     _copy!(d.ϕs, x)
     penalty!(grad_f, d.ϕs, d.ϕs_old, d.dp, d.λt, d.mmis)
 end
@@ -1154,20 +1164,20 @@ function fit_sigmoid(data, bottom, top, center, width)
     length(data) >= 4 || error("Too few data points for sigmoidal fit")
     objective = SigmoidOpt(data)
     solver = IpoptSolver(print_level=0, sb="yes")
-    m = MathProgBase.NonlinearModel(solver)
+    m = MOI.NonlinearModel(solver)
     x0 = Float64[bottom, top, center, width]
     mn, mx = extrema(data)
     ub = [mx, mx, length(data), length(data)]
     lb = [mn, mn, 1, 0.1]
-    MathProgBase.loadproblem!(m, 4, 0, lb, ub, Float64[], Float64[], :Min, objective)
-    MathProgBase.setwarmstart!(m, x0)
-    MathProgBase.optimize!(m)
+    MOI.loadproblem!(m, 4, 0, lb, ub, Float64[], Float64[], :Min, objective)
+    MOI.setwarmstart!(m, x0)
+    MOI.optimize!(m)
 
-    stat = MathProgBase.status(m)
+    stat = MOI.status(m)
     stat == :Optimal || @warn("Solution was not optimal")
-    x = MathProgBase.getsolution(m)
+    x = MOI.getsolution(m)
 
-    x[1], x[2], x[3], x[4], MathProgBase.getobjval(m)
+    x[1], x[2], x[3], x[4], MOI.getobjval(m)
 end
 
 function fit_sigmoid(data)
@@ -1188,21 +1198,21 @@ end
 
 SigmoidOpt(data::Vector{Float64}) = SigmoidOpt(data, y->ForwardDiff.gradient(x->sigpenalty(x, data), y), y->ForwardDiff.hessian(x->sigpenalty(x, data), y))
 
-function MathProgBase.initialize(d::SigmoidOpt, requested_features::Vector{Symbol})
+function MOI.initialize(d::SigmoidOpt, requested_features::Vector{Symbol})
     for feat in requested_features
         if !(feat in [:Grad, :Jac, :Hess])
             error("Unsupported feature $feat")
         end
     end
 end
-MathProgBase.features_available(d::SigmoidOpt) = [:Grad, :Jac, :Hess]
+MOI.features_available(d::SigmoidOpt) = [:Grad, :Jac, :Hess]
 
-MathProgBase.eval_f(d::SigmoidOpt, x) = sigpenalty(x, d.data)
+MOI.eval_objective(d::SigmoidOpt, x) = sigpenalty(x, d.data)
 
-MathProgBase.eval_grad_f(d::SigmoidOpt, grad_f, x) =
+MOI.eval_objective_gradient(d::SigmoidOpt, grad_f, x) =
     copyto!(grad_f, d.g(x))
 
-function MathProgBase.hesslag_structure(d::SigmoidOpt)
+function MOI.hessian_lagrangian_structure(d::SigmoidOpt)
     I, J = Int[], Int[]
     for i in CartesianIndices((4,4))
         push!(I, i[1])
@@ -1211,7 +1221,7 @@ function MathProgBase.hesslag_structure(d::SigmoidOpt)
     (I, J)
 end
 
-function MathProgBase.eval_hesslag(d::SigmoidOpt, H, x, σ, μ)
+function MOI.eval_hessian_lagrangian(d::SigmoidOpt, H, x, σ, μ)
     copyto!(H, σ * d.h(x))
 end
 
