@@ -42,6 +42,7 @@ RegisterDeformation = "0.3, 0.4"
 RegisterFit = "0.1, 0.2"
 RegisterPenalty = "0.1, 0.2, 0.3"
 StaticArrays = "0.10, 0.11, 0.12, 1"
+Statistics = "1"
 julia = "1.1"
 
 [extras]
