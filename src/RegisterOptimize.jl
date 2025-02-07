@@ -594,6 +594,7 @@ end
 function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
     uvec = u_as_vec(ϕ)
     T = eltype(uvec)
+    skwargs = map(k->String(k)=>kwargs[k],keys(kwargs))
     mxs = maxshift(first(mmis))
 
     model = Model(optimizer_with_attributes(Ipopt.Optimizer,
@@ -601,13 +602,14 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
                                             "print_level" => print_level,
                                             "sb" => "yes",
                                             "tol" => tol,
-                                            kwargs...))
+                                            skwargs...))
 
     ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer=[div(length(uvec), length(ub1))])
     N = length(ub)
     @variable(model, -ub[i] <= x[i in 1:N] <= ub[i], start = uvec[i])
-    @operator(model, op_objective, N, (x...) -> MOI.eval_objective(objective, collect(x)))
+    @operator(model, op_objective, N, (x...) -> MOI.eval_objective(objective, collect(x)),
+                                      (g, x...) -> MOI.eval_objective_gradient(objective, g, collect(x)))
     @objective(model, Min, op_objective(x...))
     fval0 =  MOI.eval_objective(objective, uvec)
     isfinite(fval0) || error("Initial value must be finite")
@@ -625,6 +627,10 @@ function u_as_vec(ϕ::GridDeformation{S,N}, ::Type{T}=eltype(ϕ)) where {S,N,T}
     R = promote_type(S, T)
     n = length(ϕ.u)
     return convert(AbstractVector{R}, reshape(reinterpret(S, vec(ϕ.u)), (n*N,)))
+end
+
+function vec_as_u(g, ϕ::GridDeformation{T,N}) where {T,N}
+    reshape(reinterpret(SVector{N,T}, vec(g)), size(ϕ.u))
 end
 
 function vec_as_u(g::Array{T}, ϕ::GridDeformation{T,N}) where {T,N}
@@ -665,8 +671,6 @@ function MOI.eval_objective(d::DeformOpt, x::AbstractVector{<:Real})
 end
 
 function MOI.eval_objective_gradient(d::DeformOpt, grad_f, x)
-    @show x grad_f
-    error("stop")
     uvec = u_as_vec(d.ϕ)
     copyto!(uvec, x)
     penalty!(vec_as_u(grad_f, d.ϕ), d.ϕ, d.ϕ_old, d.dp, d.mmis)
