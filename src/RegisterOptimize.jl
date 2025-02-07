@@ -100,8 +100,8 @@ function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
     MathProgBase.optimize!(m)
 
     stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
     p = MathProgBase.getsolution(m)
+    stat == :Optimal || (@warn("Solution was not optimal 1"); @show p)
     fval = MathProgBase.getobjval(m)
 
     p2rigid(p, SD), fval
@@ -475,8 +475,9 @@ function find_opt(P::AffineQHessian{AP,M,N,Φ}, b, maxshift, x0) where {AP,M,N,�
     MathProgBase.setwarmstart!(m, x0)
     MathProgBase.optimize!(m)
     stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
-    MathProgBase.getsolution(m)
+    p = MathProgBase.getsolution(m)
+    stat == :Optimal || (@warn("Solution was not optimal 2"); @show p)
+    return p
 end
 
 # We omit the constant term ∑_i cs[i]'*Qs[i]*cs[i], since it won't
@@ -604,12 +605,13 @@ function _optimize!(objective, ϕ, dp, mmis, tol, print_level; kwargs...)
     MathProgBase.loadproblem!(m, length(uvec), 0, -ub, ub, T[], T[], :Min, objective)
     MathProgBase.setwarmstart!(m, uvec)
     fval0 = MathProgBase.eval_f(objective, uvec)
+    @show uvec fval0
     isfinite(fval0) || error("Initial value must be finite")
     MathProgBase.optimize!(m)
 
     stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
     uopt = MathProgBase.getsolution(m)
+    stat == :Optimal || (@warn("Solution was not optimal 3"); @show uopt)
     fval = MathProgBase.getobjval(m)
     _copy!(ϕ, uopt)
     ϕ, fval, fval0
@@ -1164,8 +1166,8 @@ function fit_sigmoid(data, bottom, top, center, width)
     MathProgBase.optimize!(m)
 
     stat = MathProgBase.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
     x = MathProgBase.getsolution(m)
+    stat == :Optimal || (@warn("Solution was not optimal 4"); @show x)
 
     x[1], x[2], x[3], x[4], MathProgBase.getobjval(m)
 end
