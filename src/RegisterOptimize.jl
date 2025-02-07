@@ -90,21 +90,37 @@ function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
     T = eltype(p0)
 
     # Set up and run the solver
-    model = Model(optimizer_with_attributes(Ipopt.Optimizer, "hessian_approximation" => "limited-memory",
+    model = Model(optimizer_with_attributes(Ipopt.Optimizer,
+                                            "hessian_approximation" => "limited-memory",
                                              "print_level" => print_level,
                                              "tol" => tol,
                                              "max_iter" => max_iter,
                                              "sb" => "yes"))
 
-    ub = T[fill(maxrot, length(p0)-length(maxshift)); [maxshift...]]
-    MOI.loadproblem!(model, length(p0), 0, -ub, ub, T[], T[], :Min, objective)
-    MOI.setwarmstart!(model, p0)
-    MOI.optimize!(model)
+    # ub = T[fill(maxrot, length(p0)-length(maxshift)); [maxshift...]]
+    # MOI.loadproblem!(model, length(p0), 0, -ub, ub, T[], T[], :Min, objective)
+    # MOI.setwarmstart!(model, p0)
+    # MOI.optimize!(model)
 
-    stat = MOI.status(model)
-    stat == :Optimal || @warn("Solution was not optimal")
-    p = MOI.getsolution(model)
-    fval = MOI.getobjval(model)
+    # stat = MOI.status(model)
+    # stat == :Optimal || @warn("Solution was not optimal")
+    # p = MOI.getsolution(model)
+    # fval = MOI.getobjval(model)
+
+    N = length(p0)
+    ub = T[fill(maxrot, N-length(maxshift)); [maxshift...]]
+    @variable(model, -ub[i] <= x[i in 1:N] <= ub[i], start = p0[i])
+    @operator(model, op_objective, N, (x...) -> MOI.eval_objective(objective, collect(x)),
+                            (g, x...) -> MOI.eval_objective_gradient(objective, g, collect(x)))
+    @objective(model, Min, op_objective(x...))
+    fval0 =  MOI.eval_objective(objective, p0)
+    isfinite(fval0) || error("Initial value must be finite")
+    JuMP.optimize!(model)
+
+    stat = termination_status(model)
+    stat == LOCALLY_SOLVED || @warn("Solution was not optimal")
+    p = JuMP.value.(x)
+    fval = JuMP.objective_value(model)
 
     p2rigid(p, SD), fval
 end
@@ -465,6 +481,7 @@ end
 
 function find_opt(P::AffineQHessian{AP,M,N,Φ}, b, maxshift, x0) where {AP,M,N,Φ<:GridDeformation}
     objective = InitialDefOpt(P, b)
+#=
     solver = IpoptSolver(hessian_approximation="limited-memory",
                          print_level=0,
                          sb="yes")
@@ -479,6 +496,27 @@ function find_opt(P::AffineQHessian{AP,M,N,Φ}, b, maxshift, x0) where {AP,M,N,�
     stat = MOI.status(m)
     stat == :Optimal || @warn("Solution was not optimal")
     MOI.getsolution(m)
+=#
+    T = eltype(b)
+    n = length(b)
+
+    model = Model(optimizer_with_attributes(Ipopt.Optimizer,
+                                            "hessian_approximation"=>"limited-memory",
+                                            "print_level" => 0,
+                                            "sb" => "yes"))
+    ub1 = T[maxshift...] .- T(RegisterFit.register_half)
+    ub = repeat(ub1, outer=[div(n, length(maxshift))])
+    @variable(model, -ub[i] <= x[i in 1:n] <= ub[i], start = x0[i])
+    @operator(model, op_objective, n, (x...) -> MOI.eval_objective(objective, collect(x)),
+                            (g, x...) -> MOI.eval_objective_gradient(objective, g, collect(x)))
+    @objective(model, Min, op_objective(x...))
+    fval0 =  MOI.eval_objective(objective, x0)
+    isfinite(fval0) || error("Initial value must be finite")
+    JuMP.optimize!(model)
+
+    stat = termination_status(model)
+    stat == LOCALLY_SOLVED || @warn("Solution was not optimal")
+    JuMP.value.(x)
 end
 
 # We omit the constant term ∑_i cs[i]'*Qs[i]*cs[i], since it won't
@@ -1167,21 +1205,36 @@ length(data)]`, and `0.1 <= width <= length(data)`.)
 function fit_sigmoid(data, bottom, top, center, width)
     length(data) >= 4 || error("Too few data points for sigmoidal fit")
     objective = SigmoidOpt(data)
-    solver = IpoptSolver(print_level=0, sb="yes")
-    m = MOI.NonlinearModel(solver)
-    x0 = Float64[bottom, top, center, width]
+
+    # solver = IpoptSolver(print_level=0, sb="yes")
+    # m = MOI.NonlinearModel(solver)
+    # x0 = Float64[bottom, top, center, width]
+    # mn, mx = extrema(data)
+    # ub = [mx, mx, length(data), length(data)]
+    # lb = [mn, mn, 1, 0.1]
+    # MOI.loadproblem!(m, 4, 0, lb, ub, Float64[], Float64[], :Min, objective)
+    # MOI.setwarmstart!(m, x0)
+    # MOI.optimize!(m)
+
+    model = Model(optimizer_with_attributes(Ipopt.Optimizer,
+                                            "print_level" => 0,
+                                            "sb" => "yes"))
     mn, mx = extrema(data)
-    ub = [mx, mx, length(data), length(data)]
-    lb = [mn, mn, 1, 0.1]
-    MOI.loadproblem!(m, 4, 0, lb, ub, Float64[], Float64[], :Min, objective)
-    MOI.setwarmstart!(m, x0)
-    MOI.optimize!(m)
+    x0 = Float64[bottom, top, center, width]
+    N = length(x0)
+    @variable(model, mn <= x[i in 1:N] <= mx, start = x0[i])
+    @operator(model, op_objective, N, (x...) -> MOI.eval_objective(objective, collect(x)),
+                            (g, x...) -> MOI.eval_objective_gradient(objective, g, collect(x)))
+    @objective(model, Min, op_objective(x...))
+    fval0 =  MOI.eval_objective(objective, x0)
+    isfinite(fval0) || error("Initial value must be finite")
+    JuMP.optimize!(model)
 
-    stat = MOI.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
-    x = MOI.getsolution(m)
+    stat = termination_status(model)
+    stat == LOCALLY_SOLVED || @warn("Solution was not optimal")
+    x = JuMP.value.(x)
 
-    x[1], x[2], x[3], x[4], MOI.getobjval(m)
+    x[1], x[2], x[3], x[4], JuMP.objective_value(model)
 end
 
 function fit_sigmoid(data)
