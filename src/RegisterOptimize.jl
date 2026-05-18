@@ -1074,7 +1074,7 @@ function (*)(P::TimeHessian{AQH}, x::AbstractVector) where AQH
     yv = P.aqh*x
     ϕs = vec2vecϕ(P.aqh.Qs, x)
     y = convert_to_fixed(SVector{size(P.aqh.Qs[1],1),eltype(yv)}, yv, size(P.aqh.Qs))
-    penalty!(y, P.λt, ϕs)
+    penalty!(y, ϕs, P.λt)
     yv
 end
 
@@ -1083,7 +1083,7 @@ function LinearAlgebra.mul!(y::AbstractVector,
                               x::AbstractVector) where AQH
     mul!(y, P.aqh, x)
     ϕs = vec2vecϕ(P.aqh.Qs, x)
-    penalty!(y, P.λt, ϕs)
+    penalty!(y, ϕs, P.λt)
     y
 end
 
