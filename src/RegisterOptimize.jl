@@ -827,15 +827,18 @@ function auto_λ(cs, Qs, nodes::NTuple{N}, mmis, λrange; stackidx=nothing, kwar
     auto_λ(cs, Qs, nodes, ap, mmis, λrange; kwargs...)
 end
 
-function auto_λ(cs::Array{Tf}, Qs::Array{Tf}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Tf}, λrange; kwargs...) where {Tf<:Number,T,N}
+function auto_λ(cs::AbstractArray{<:Number}, Qs::AbstractArray{<:Number}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::AbstractArray{<:Number}, λrange; kwargs...) where {T,N}
     # Ipopt requires Float64
     auto_λ(convert(Array{Float64}, cs), convert(Array{Float64}, Qs), nodes, ap, convert(Array{Float64}, mmis), λrange; kwargs...)
 end
 
-function auto_λ(cs::Array{Float64}, Qs::Array{Float64}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Float64}, λrange; kwargs...) where {T,N}
-    csr = reshape(reinterpret(SVector{N,Float64}, vec(cs)), tail(size(cs)))
-    Qsr = reshape(reinterpret(similar_type(SArray,Float64,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
-    mmisr = reshape(reinterpret(NumDenom{Float64}, vec(mmis)), tail(size(mmis)))
+function auto_λ(cs::AbstractArray{Float64}, Qs::AbstractArray{Float64}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::AbstractArray{Float64}, λrange; kwargs...) where {T,N}
+    cs64 = cs isa Array{Float64} ? cs : Array(cs)
+    Qs64 = Qs isa Array{Float64} ? Qs : Array(Qs)
+    mmis64 = mmis isa Array{Float64} ? mmis : Array(mmis)
+    csr = reshape(reinterpret(SVector{N,Float64}, vec(cs64)), tail(size(cs64)))
+    Qsr = reshape(reinterpret(similar_type(SArray,Float64,Size(N,N)), vec(Qs64)), tail(tail(size(Qs64))))
+    mmisr = reshape(reinterpret(NumDenom{Float64}, vec(mmis64)), tail(size(mmis64)))
     mmisc = cachedinterpolators(mmisr, N, ntuple(d->(size(mmisr,d)+1)>>1, N))
     ap64 = convert(AffinePenalty{Float64,N}, ap)
     auto_λ(csr, Qsr, nodes, ap64, mmisc, λrange; kwargs...)
@@ -957,11 +960,6 @@ function auto_λt(Es, cs, Qs, ap, λtrange)
     λts, datapenalty
 end
 
-function auto_λt(Es, cs::Array{Tf}, Qs::Array{Tf}, ap::AffinePenalty{T,N}, λt) where {Tf<:Number,T,N}
-    csr = reshape(reinterpret(SVector{N,Tf}, vec(cs)), tail(size(cs)))
-    Qsr = reshape(reinterpret(similar_type(SArray,Tf,Size(N,N)), vec(Qs)), tail(tail(size(Qs))))
-    auto_λt(Es, csr, Qsr, ap, λt)
-end
 
 ###
 ### Whole-experiment optimization with a temporal roughness penalty
