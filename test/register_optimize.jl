@@ -153,7 +153,7 @@ end
     v = zeros(size(P,1)); v[end] = 1
     @test ≈(P*v, vec(Ac[end,:]), atol=0.0001)
     ux = initial_guess_direct(A, 1.0, csr, Qsr)
-    u, isconverged = RegisterOptimize.initial_deformation(ap, 1.0, cs, Qs)
+    u, isconverged = RegisterOptimize.initial_deformation(ap, cs, Qs; λt=1.0)
     @test isconverged
     @test size(u) == size(ux)
     @test eltype(u) == SVector{2,Float64}
@@ -273,14 +273,14 @@ end
     cs = cat([5,-3], [0,0], [3,-1], dims=2)
     gridsize = (2,2)
     denom = ones(15,15)
-    mms = tighten([quadratic(cs[:,t], Qs[:,:,t], denom) for i = 1:gridsize[1], j = 1:gridsize[2], t = 1:3])
+    mms = tighten([quadratic(denom, cs[:,t], Qs[:,:,t]) for i = 1:gridsize[1], j = 1:gridsize[2], t = 1:3])
     mmis = RegisterPenalty.interpolate_mm!(mms)
     nodes = (range(1, stop=100, length=gridsize[1]), range(1, stop=99, length=gridsize[2]))
     ap = RegisterPenalty.AffinePenalty(nodes, 1.0)
     u = randn(2, gridsize..., 3)
     ϕs = tighten([GridDeformation(u[:,:,:,t], nodes) for t = 1:3])
     g = similar(u)
-    ϕs, fval = RegisterOptimize.optimize!(ϕs, identity, ap, 1.0, mmis)
+    ϕs, fval = RegisterOptimize.optimize!(ϕs, identity, ap, mmis; λt=1.0)
     c = 1/prod(gridsize)  # not sure about this
     A = [2c+1 -1 0; -1 2 -1; 0 -1 2c+1]
     target = (A\(2c*cs'))'
