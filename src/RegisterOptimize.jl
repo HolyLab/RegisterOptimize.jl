@@ -270,11 +270,11 @@ to_float(::Type{T}, A, B) where {T} = convert(Array{Float32}, A), convert(Array{
 ### Rigid registration from raw images, MathProg interface
 ###
 mutable struct RigidValue{N, A <: AbstractArray, I <: AbstractExtrapolation, SDT} <: MOI.AbstractNLPEvaluator
-    fixed::A
-    wfixed::A
-    moving::I
-    SD::SDT
-    thresh
+    const fixed::A
+    const wfixed::A
+    const moving::I
+    const SD::SDT
+    const thresh
 end
 
 function RigidValue(fixed::AbstractArray, moving::AbstractArray{T}, SD, thresh) where {T <: Real}
@@ -301,8 +301,8 @@ function (d::RigidValue)(x)
 end
 
 mutable struct RigidOpt{RV <: RigidValue, G} <: GradOnlyBoundsOnly
-    rv::RV
-    g::G
+    const rv::RV
+    const g::G
 end
 
 function RigidOpt(fixed, moving, SD, thresh)
@@ -426,9 +426,9 @@ end
 
 # A type for computing multiplication by the linear operator
 mutable struct AffineQHessian{AP <: AffinePenalty, M <: StaticMatrix, N, Φ}
-    ap::AP
-    Qs::Array{M, N}
-    ϕ_old::Φ
+    const ap::AP
+    const Qs::Array{M, N}
+    const ϕ_old::Φ
 end
 
 function AffineQHessian(ap::AffinePenalty{T}, Qs::AbstractArray{TQ, N}, ϕ_old) where {T, TQ, N}
@@ -649,10 +649,10 @@ end
 
 
 mutable struct DeformOpt{D, Dold, DP, M} <: GradOnlyBoundsOnly
-    ϕ::D
-    ϕ_old::Dold
-    dp::DP
-    mmis::M
+    const ϕ::D
+    const ϕ_old::Dold
+    const dp::DP
+    const mmis::M
 end
 # (d::DeformOpt)(x) = MOI.eval_objective(d, x)
 
@@ -705,11 +705,11 @@ function optimize!(ϕs::Vector{<:GridDeformation}, ϕs_old, dp::AffinePenalty{T,
 end
 
 mutable struct DeformTseriesOpt{D, Dsold, DP, T, M} <: GradOnlyBoundsOnly
-    ϕs::Vector{D}
-    ϕs_old::Dsold
-    dp::DP
-    λt::T
-    mmis::M
+    const ϕs::Vector{D}
+    const ϕs_old::Dsold
+    const dp::DP
+    const λt::T
+    const mmis::M
 end
 
 # Using MOI is a legacy of the old Ipopt interface, but
@@ -1107,9 +1107,9 @@ end
 
 
 mutable struct SigmoidOpt{G, H} <: BoundsOnly
-    data::Vector{Float64}
-    g::G
-    h::H
+    const data::Vector{Float64}
+    const g::G
+    const h::H
 end
 
 SigmoidOpt(data::Vector{Float64}) = SigmoidOpt(data, y -> ForwardDiff.gradient(x -> sigpenalty(x, data), y), y -> ForwardDiff.hessian(x -> sigpenalty(x, data), y))
