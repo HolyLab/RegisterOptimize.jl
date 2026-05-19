@@ -775,9 +775,9 @@ of `λ`, `datapenalty` is a vector containing the data penalty for each
 tested `λ` value, and `quality` an estimate (possibly broken) of the
 fidelity of the sigmoidal fit.
 
-If you have data for an image sequence, `auto_λ(stackindex, cs, Qs,
-nodes, mmis, (λmin, λmax))` will perform the analysis on the chosen
-`stackindex`.
+If you have data for an image sequence, pass `stackidx=k` to analyze
+only the `k`-th slice of `cs`, `Qs`, and `mmis` along their last
+dimension.
 
 See also: `fixed_λ`. Because `auto_λ` performs the optimization
 repeatedly for many different `λ`s, it is slower than `fixed_λ`.
@@ -796,16 +796,15 @@ function auto_λ(fixed::AbstractArray{R}, moving::AbstractArray{S}, gridsize::NT
     auto_λ(cs, Qs, nodes, mmis, λrange; kwargs...)
 end
 
-function auto_λ(cs, Qs, nodes::NTuple{N}, mmis, λrange; kwargs...) where N
+function auto_λ(cs, Qs, nodes::NTuple{N}, mmis, λrange; stackidx=nothing, kwargs...) where N
+    if stackidx !== nothing
+        colons = ntuple(d->Colon(), ndims(cs)-1)
+        cs   = cs[  colons..., stackidx]
+        Qs   = Qs[  colons..., stackidx]
+        mmis = mmis[colons..., stackidx]
+    end
     ap = AffinePenalty{Float64,N}(nodes, λrange[1])  # default to affine-residual penalty, Ipopt needs Float64
     auto_λ(cs, Qs, nodes, ap, mmis, λrange; kwargs...)
-end
-
-function auto_λ(stackidx::Integer, cs, Qs, nodes::NTuple{N}, mmis, λrange; kwargs...) where N
-    cs1 = cs[ntuple(d->Colon(),ndims(cs)-1)..., stackidx];
-    Qs1 = Qs[ntuple(d->Colon(),ndims(Qs)-1)..., stackidx];
-    mmis1 = mmis[ntuple(d->Colon(),ndims(mmis)-1)..., stackidx];
-    auto_λ(cs1, Qs1, nodes, mmis1, λrange; kwargs...)
 end
 
 function auto_λ(cs::Array{Tf}, Qs::Array{Tf}, nodes::NTuple{N}, ap::AffinePenalty{T,N}, mmis::Array{Tf}, λrange; kwargs...) where {Tf<:Number,T,N}
