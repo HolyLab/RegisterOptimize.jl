@@ -5,9 +5,15 @@ using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, Regi
 using Images, CoordinateTransformations, Rotations, RegisterOptimize, LinearAlgebra
 using RegisterUtilities
 using Aqua
+using ExplicitImports
 
 @testset "Aqua" begin
     Aqua.test_all(RegisterOptimize; piracies=(; treat_as_own=[RegisterCore.maxshift]))
+end
+
+@testset "ExplicitImports" begin
+    @test ExplicitImports.check_no_implicit_imports(RegisterOptimize) === nothing
+    @test ExplicitImports.check_no_stale_explicit_imports(RegisterOptimize) === nothing
 end
 
 ###

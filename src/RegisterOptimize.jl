@@ -1,11 +1,28 @@
 module RegisterOptimize
 
 import MathOptInterface as MOI
-using JuMP: JuMP, Model, optimizer_with_attributes, @variable, @objective, @operator, @constraint, termination_status, LOCALLY_SOLVED
-using Ipopt, Optim, Interpolations, ForwardDiff, StaticArrays, IterativeSolvers, ProgressMeter
-using RegisterCore, RegisterDeformation, RegisterPenalty, RegisterFit, CachedInterpolations, CenterIndexedArrays
-using Printf, LinearAlgebra, Statistics, CoordinateTransformations
+using JuMP: JuMP, Model, optimizer_with_attributes, @variable, @objective, @operator, termination_status, LOCALLY_SOLVED
+using CachedInterpolations: CachedInterpolations, CachedInterpolation, cachedinterpolators
+using CenterIndexedArrays: CenterIndexedArrays, CenterIndexedArray
+using CoordinateTransformations: CoordinateTransformations, AffineMap
+using ForwardDiff: ForwardDiff
+using Interpolations: Interpolations, AbstractExtrapolation, AbstractInterpolation,
+                      BSpline, InPlace, Linear, OnCell, Quadratic
+using Ipopt: Ipopt
+using IterativeSolvers: IterativeSolvers, cg
+using LinearAlgebra: LinearAlgebra, I, dot, mul!, tr
+using Optim: Optim, Fminbox, LBFGS, OnceDifferentiable
+using Printf: Printf, @printf
+using ProgressMeter: ProgressMeter, @showprogress
+using RegisterCore: RegisterCore, ColonFun, NumDenom, maxshift, ratio
+using RegisterDeformation: RegisterDeformation, GridDeformation, extrapolate,
+                           interpolate!, rotation2, rotation3, rotationparameters,
+                           tformeye, tformrotate, tformtranslate, transform
 using RegisterDeformation: convert_to_fixed, convert_from_fixed
+using RegisterFit: RegisterFit, mms2fit, uclamp!
+using RegisterPenalty: RegisterPenalty, AffinePenalty, DeformationPenalty, penalty!
+using StaticArrays: StaticArrays, SArray, SMatrix, SVector, Size, StaticMatrix, similar_type
+using Statistics: Statistics, mean
 using Base: tail
 
 import Base: *
@@ -677,7 +694,7 @@ function optimize!(ϕs::Vector{<:GridDeformation}, ϕs_old, dp::AffinePenalty, m
     ub1 = T[mxs...] .- T(RegisterFit.register_half)
     ub = repeat(ub1, outer = [div(length(uvec), length(ub1))])
     results = Optim.optimize(df, -ub, ub, uvec, Fminbox(LBFGS()), Optim.Options(x_tol = 1.0e-4, kwargs...))
-    return _copy!(ϕs, Optim.minimizer(results)), Optim.minimum(results)
+    return _copy!(ϕs, Optim.minimizer(results)), minimum(results)
 end
 
 function optimize!(ϕs::Vector{<:GridDeformation}, ϕs_old, dp::AffinePenalty{T, N}, mmis::Array{Tf}; λt = nothing, kwargs...) where {Tf <: Number, T, N}
