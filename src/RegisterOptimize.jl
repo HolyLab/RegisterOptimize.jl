@@ -284,19 +284,16 @@ MOI.eval_objective_gradient(d::RigidOpt, grad_f, x) =
 ### quadratic-fit mismatch data
 ###
 """
-`u0, converged = initial_deformation(ap::AffinePenalty, cs, Qs;
-[ϕ_old=identity])` prepares a globally-optimal initial guess for a
-deformation, given a quadratic fit to the aperture-wise mismatch
-data. `cs` and `Qs` must be arrays-of-arrays in the shape of the
-u0-grid, each entry as calculated by `qfit`. The initial guess
-minimizes the function
+`u0, converged = initial_deformation(ap::AffinePenalty, cs, Qs)`
+prepares a globally-optimal initial guess for a deformation, given a
+quadratic fit to the aperture-wise mismatch data. `cs` and `Qs` must
+be arrays-of-arrays in the shape of the u0-grid, each entry as
+calculated by `qfit`. The initial guess minimizes the function
 
 ```
     ap(ϕ(u0)) + ∑_i (u0[i]-cs[i])' * Qs[i] * (u0[i]-cs[i])
 ```
 where `ϕ(u0)` is the deformation associated with `u0`.
-
-If `ϕ_old` is not the identity, it must be interpolating.
 """
 function initial_deformation(ap::AffinePenalty, cs, Qs)
     _initial_deformation(ap, cs, Qs)
@@ -457,105 +454,6 @@ function _affine_part!(g, ap::AffinePenalty{T,N}, u) where {T,N}
         throw(DimensionMismatch("unknown dimensionality $(ndims(u)) for $N dimensions"))
     end
     s
-end
-
-function initial_deformation(ap::AffinePenalty{T,N}, cs, Qs, ϕ_old, maxshift) where {T,N}
-    error("This is broken, don't use it")
-    b = prep_b(T, cs, Qs)
-    # In case the grid is really big, solve iteratively
-    # (The matrix is not sparse, but matrix-vector products can be
-    # computed efficiently.)
-    P0 = AffineQHessian(ap, Qs, identity)
-    x0 = find_opt(P0, b)
-    P = AffineQHessian(ap, Qs, ϕ_old)
-    x = find_opt(P, b, maxshift, x0)
-    u0 = convert_to_fixed(x, (N,size(cs)...)) #reinterpret(SVector{N,eltype(x)}, x, size(cs))
-end
-
-# type for minimization with composition (which turns the problem into
-# a nonlinear problem)
-mutable struct InitialDefOpt{AQH,B} <: GradOnlyBoundsOnly
-    P::AQH
-    b::B
-end
-
-function find_opt(P::AffineQHessian{AP,M,N,Φ}, b, maxshift, x0) where {AP,M,N,Φ<:GridDeformation}
-    objective = InitialDefOpt(P, b)
-#=
-    solver = IpoptSolver(hessian_approximation="limited-memory",
-                         print_level=0,
-                         sb="yes")
-    m = MOI.NonlinearModel(solver)
-    T = eltype(b)
-    n = length(b)
-    ub1 = T[maxshift...] - T(RegisterFit.register_half)
-    ub = repeat(ub1, outer=[div(n, length(maxshift))])
-    MOI.loadproblem!(m, n, 0, -ub, ub, T[], T[], :Min, objective)
-    MOI.setwarmstart!(m, x0)
-    MOI.optimize!(m)
-    stat = MOI.status(m)
-    stat == :Optimal || @warn("Solution was not optimal")
-    MOI.getsolution(m)
-=#
-    T = eltype(b)
-    n = length(b)
-
-    model = Model(optimizer_with_attributes(Ipopt.Optimizer,
-                                            "hessian_approximation"=>"limited-memory",
-                                            "print_level" => 0,
-                                            "sb" => "yes"))
-    ub1 = T[maxshift...] .- T(RegisterFit.register_half)
-    ub = repeat(ub1, outer=[div(n, length(maxshift))])
-    @variable(model, -ub[i] <= x[i in 1:n] <= ub[i], start = x0[i])
-    @operator(model, op_objective, n, (x...) -> MOI.eval_objective(objective, collect(x)),
-                            (g, x...) -> MOI.eval_objective_gradient(objective, g, collect(x)))
-    @objective(model, Min, op_objective(x...))
-    fval0 =  MOI.eval_objective(objective, x0)
-    isfinite(fval0) || error("Initial value must be finite")
-    JuMP.optimize!(model)
-
-    stat = termination_status(model)
-    stat == LOCALLY_SOLVED || @warn("Solution was not optimal")
-    JuMP.value.(x)
-end
-
-# We omit the constant term ∑_i cs[i]'*Qs[i]*cs[i], since it won't
-# affect the solution
-MOI.eval_objective(d::InitialDefOpt, x::AbstractVector) =
-    _eval_f(d.P, d.b, x)
-
-function _eval_f(P::AffineQHessian{AffinePenalty{T,N}}, b, x::AbstractVector) where {T,N}
-    gridsize = size(P.Qs)
-    n = prod(gridsize)
-    u  = convert_to_fixed(x, (N,gridsize...))# reinterpret(SVector{N,T}, x, gridsize)
-    bf = convert_to_fixed(b, (N,gridsize...))# reinterpret(SVector{N,T}, b, gridsize)
-    λ = P.ap.λ
-    P.ap.λ = λ*n/2
-    val = affine_part!(nothing, P, u)
-    P.ap.λ = λ
-    for i = 1:n
-        val += ((u[i]' * P.Qs[i] * u[i])/2 - bf[i]'*u[i])[1]
-    end
-    val
-end
-
-function MOI.eval_objective_gradient(d::InitialDefOpt, grad_f, x)
-    P, b = d.P, d.b
-    copy!(grad_f, P*x-b)
-end
-
-function affine_part!(g, P::AffineQHessian{AP,M,N,Φ}, u) where {AP,M,N,Φ<:GridDeformation}
-    ϕ_c, g_c = compose(P.ϕ_old, GridDeformation(u, P.ϕ_old.nodes))
-    penalty!(g, P.ap, ϕ_c, g_c)
-end
-
-function affine_part!(::Nothing, P::AffineQHessian{AP,M,N,Φ}, u) where {AP,M,N,Φ<:GridDeformation}
-    # Sadly, with GradientNumbers this gives an error I haven't traced
-    # down (might be a Julia bug)
-    # ϕ_c = P.ϕ_old(GridDeformation(u, P.ϕ_old.nodes))
-    # penalty!(nothing, P.ap, ϕ_c)
-    u_c = RegisterDeformation._compose(P.ϕ_old.u, u, P.ϕ_old.nodes)
-    penalty!(nothing, P.ap, u_c)
 end
 
 ###
@@ -1097,95 +995,6 @@ end
     [GridDeformation(view(x, colons..., i), axs) for i = 1:size(x)[end]]
 end
 
-
-###
-### Mismatch-based optimization of affine transformation
-###
-### NOTE: not updated yet, probably broken
-"""
-`tform = optimize(tform0, mms, nodes)` performs descent-based
-minimization of the total mismatch penalty as a function of the
-parameters of an affine transformation, starting from an initial guess
-`tform0`.  While this is unlikely to yield very accurate results for
-large rotations or skews (the mismatch data are themselves suspect in
-such cases), it can be helpful for polishing small deformations.
-
-For a good initial guess, see `mismatch2affine`.
-"""
-function optimize(tform::AffineMap, mmis, nodes)
-    gridsize = size(mmis)
-    N = length(gridsize)
-    ndims(tform) == N || error("Dimensionality of tform is $(ndims(tform)), which does not match $N for nums/denoms")
-    mm = first(mmis)
-    mxs = maxshift(mm)
-    T = eltype(eltype(mm))
-    # Compute the bounds
-    asz = arraysize(nodes)
-    center = T[(asz[i]+1)/2 for i = 1:N]
-    X = zeros(T, N+1, prod(gridsize))
-    for (i, node) in enumerate(eachnode(nodes))
-        X[1:N,i] = node - center
-        X[N+1,i] = 1
-    end
-    bound = convert(Vector{T}, [mxs .- register_half; Inf])
-    lower = repeat(-bound, outer=[1,size(X,2)])
-    upper = repeat( bound, outer=[1,size(X,2)])
-    # Extract the parameters from the initial guess
-    Si = tform.linear
-    displacement = tform.translation
-    A = convert(Matrix{T}, [Si-Matrix{Float64}(I,N,N) displacement; zeros(1,N) 1])
-    # Determine the blocks that start in-bounds
-    AX = A*X
-    keep = trues(gridsize)
-    for j = 1:length(keep)
-        for idim = 1:N
-            xi = AX[idim,j]
-            if xi < -mxs[idim]+register_half_safe || xi > mxs[idim]-register_half_safe
-                keep[j] = false
-                break
-            end
-        end
-    end
-    if !any(keep)
-        @show tform
-        @warn("No valid blocks were found")
-        return tform
-    end
-    ignore = !keep[:]
-    lower[:,ignore] = -Inf
-    upper[:,ignore] =  Inf
-    # Assemble the objective and constraints
-
-    constraints = Optim.ConstraintsL(X', lower', upper')
-    gtmp = Array{SVector{N,T}}(undef, gridsize)
-    objective = (x,g) -> affinepenalty!(g, x, mmis, keep, X', gridsize, gtmp)
-    @assert typeof(objective(A', T[])) == T
-    result = interior(DifferentiableFunction(x->objective(x,T[]), Optim.dummy_g!, objective), A', constraints, method=:cg)
-    @assert Optim.converged(result)
-    Aopt = result.minimum'
-    Siopt = Aopt[1:N,1:N] + Matrix{Float64}(I,N,N)
-    displacementopt = Aopt[1:N,end]
-    AffineMap(convert(Matrix{T}, Siopt), convert(Vector{T}, displacementopt)), result.f_minimum
-end
-
-function affinepenalty!(g, At, mmis, keep, Xt, gridsize::NTuple{N}, gtmp) where N
-    u = _calculate_u(At, Xt, gridsize)
-    @assert eltype(u) == eltype(At)
-    val = penalty!(gtmp, u, mmis, keep)
-    @assert isa(val, eltype(At))
-    if !isempty(g)
-        T = eltype(eltype(gtmp))
-        nblocks = size(Xt,1)
-        At_mul_Bt!(g, Xt, [reshape(reinterpret(T,vec(gtmp)),(N,nblocks)); zeros(1,nblocks)])
-    end
-    val
-end
-
-function _calculate_u(At, Xt, gridsize::NTuple{N}) where N
-    Ut = Xt*At
-    u = Ut[:,1:size(Ut,2)-1]'                   # discard the dummy dimension
-    reshape(reinterpret(SVector{N, eltype(u)}, vec(u)), gridsize) # put u in the shape of the grid
-end
 
 ###
 ### Fitting to a sigmoid
