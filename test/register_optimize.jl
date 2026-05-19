@@ -4,6 +4,11 @@ import RegisterOptimize
 using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, RegisterFit
 using Images, CoordinateTransformations, Rotations, RegisterOptimize, LinearAlgebra
 using RegisterUtilities
+using Aqua
+
+@testset "Aqua" begin
+    Aqua.test_all(RegisterOptimize; piracies=(; treat_as_own=[RegisterCore.maxshift]))
+end
 
 ###
 ### Global-optimum initial guess
