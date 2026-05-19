@@ -65,8 +65,7 @@ MOI.eval_constraint_jacobian(::BoundsOnly, J, x) = nothing
 ### Rigid registration from raw images
 ###
 """
-`tform = optimize_rigid(fixed, moving, tform0, maxshift, [SD = eye];
-[thresh=0, tol=1e-4, print_level=0])` optimizes a rigid transformation
+`tform = optimize_rigid(fixed, moving, tform0, maxshift; kwargs...)` optimizes a rigid transformation
 (rotation + shift) to minimize the mismatch between `fixed` and
 `moving`.
 
@@ -77,10 +76,19 @@ enforces a certain amount of sum-of-squared-intensity overlap between
 the two images; with non-zero `thresh`, it is not permissible to
 "align" the images by shifting one entirely out of the way of the
 other.
+
+Keyword arguments:
+- `SD`: sample-spacing matrix (default: identity of size `ndims(fixed)`)
+- `maxrot`: maximum rotation in radians (default: `π`)
+- `atol`: Ipopt convergence tolerance (default: `1e-4`)
+- `print_level`: Ipopt verbosity (default: `0`)
+- `max_iter`: maximum Ipopt iterations (default: `3000`)
+- `thresh`: minimum intensity-overlap threshold (default: `0`)
+- Any additional keyword arguments are forwarded to Ipopt as options.
 """
-function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
-                SD = Matrix{Float64}(I,size(A.linear,1),size(A.linear,1)),
-                maxrot=pi; thresh=0, tol=1e-4, print_level=0, max_iter=3000)
+function optimize_rigid(fixed, moving, A::AffineMap, maxshift;
+                SD=nothing, maxrot=π, atol=1e-4, print_level=0, max_iter=3000, thresh=0, kwargs...)
+    SD === nothing && (SD = Matrix{Float64}(I, ndims(fixed), ndims(fixed)))
     objective = RigidOpt(to_float(fixed, moving)..., SD, thresh)
     # Convert initial guess into parameter vector
     R = SD*A.linear/SD
@@ -92,10 +100,11 @@ function optimize_rigid(fixed, moving, A::AffineMap, maxshift,
     # Set up and run the solver
     model = Model(optimizer_with_attributes(Ipopt.Optimizer,
                                             "hessian_approximation" => "limited-memory",
-                                             "print_level" => print_level,
-                                             "tol" => tol,
-                                             "max_iter" => max_iter,
-                                             "sb" => "yes"))
+                                            "print_level" => print_level,
+                                            "tol" => atol,
+                                            "max_iter" => max_iter,
+                                            "sb" => "yes",
+                                            (string(k) => v for (k, v) in kwargs)...))
 
     # ub = T[fill(maxrot, length(p0)-length(maxshift)); [maxshift...]]
     # MOI.loadproblem!(model, length(p0), 0, -ub, ub, T[], T[], :Min, objective)
@@ -180,15 +189,16 @@ function grid_rotations(maxradians, rgridsz, SD)
 end
 
 """
-`best_tform, best_mm = rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD =Matrix{Float64}(I,ndims(fixed),ndims(fixed))))`
+`best_tform, best_mm = rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz; SD=I_matrix)`
 Tries a grid of rotations to align `moving` to `fixed`.  Also calculates the best translation (`maxshift` pixels
 or less) to align the images after performing the rotation. Returns an AffineMap that captures both the
 best rotation and shift out of the values searched, along with the mismatch value after applying that transform (`best_mm`).
 
-For more on how the arguments `maxradians`, `rgridsz`, and `SD` influence the search, see the documentation for
-`grid_rotations`.
+`SD` defaults to the identity matrix of size `ndims(fixed)`. For more on how `maxradians`, `rgridsz`,
+and `SD` influence the search, see the documentation for `grid_rotations`.
 """
-function rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz, SD = Matrix{Float64}(I,ndims(fixed),ndims(fixed)))
+function rotation_gridsearch(fixed, moving, maxshift, maxradians, rgridsz; SD=nothing)
+    SD === nothing && (SD = Matrix{Float64}(I, ndims(fixed), ndims(fixed)))
     rgridsz = [rgridsz...]
     nd = ndims(moving)
     @assert nd == ndims(fixed)
