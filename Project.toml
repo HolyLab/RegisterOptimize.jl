@@ -1,7 +1,7 @@
 name = "RegisterOptimize"
 uuid = "b981a1b5-4587-53b0-9c3d-454c648f6f8d"
-authors = ["Tim Holy <tim.holy@gmail.com>"]
 version = "1.0.0"
+authors = ["Tim Holy <tim.holy@gmail.com>"]
 
 [deps]
 CachedInterpolations = "b9709bfb-d23d-5560-8276-8c35c4b76823"
@@ -21,39 +21,54 @@ ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 RegisterCore = "67712758-55e7-5c3c-8e85-dda1d7758434"
 RegisterDeformation = "c19381b7-cf49-59d7-881c-50dfbd227eaf"
 RegisterFit = "36121b08-3789-5198-aff2-59a3443d9b59"
-RegisterMismatch = "3c0dd727-6833-5f5d-a1e8-c0d421935c74"
 RegisterPenalty = "464fa2a9-b19c-5c59-8698-f58c971f971e"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
+Aqua = "0.8"
+Documenter = "1"
 CachedInterpolations = "1"
 CenterIndexedArrays = "1"
 CoordinateTransformations = "0.5, 0.6"
+ExplicitImports = "1"
 ForwardDiff = "0.10, 1"
+ImageMagick = "1"
+Images = "0.26"
 Interpolations = "0.9, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16"
 Ipopt = "0.5, 0.6, 1"
 IterativeSolvers = "0.7, 0.8, 0.9"
 JuMP = "1.2"
+LinearAlgebra = "1"
 MathOptInterface = "1"
 NLsolve = "3, 4"
 Optim = "0.18, 0.19, 0.20, 1"
+Printf = "1"
 ProgressMeter = "0.7, 0.8, 0.9, 1"
 RegisterCore = "1"
 RegisterDeformation = "1"
 RegisterFit = "1"
+RegisterMismatch = "1"
 RegisterPenalty = "1"
+RegisterUtilities = "1"
+Rotations = "1"
 StaticArrays = "0.10, 0.11, 0.12, 1"
 Statistics = "1"
+Test = "1"
+TestImages = "1"
 julia = "1.10"
 
 [extras]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
 Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+RegisterMismatch = "3c0dd727-6833-5f5d-a1e8-c0d421935c74"
 RegisterUtilities = "d4862ba2-f42c-5aeb-af4f-96a8884a16c4"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestImages = "5e47fb64-e119-507b-a336-dd2b206d9990"
 
 [targets]
-test = ["Test", "Rotations", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
+test = ["Aqua", "Documenter", "ExplicitImports", "Test", "Rotations", "RegisterMismatch", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
