@@ -273,12 +273,12 @@ to_float(::Type{T}, A, B) where {T} = convert(Array{Float32}, A), convert(Array{
 ###
 ### Rigid registration from raw images, MathProg interface
 ###
-mutable struct RigidValue{N, A <: AbstractArray, I <: AbstractExtrapolation, SDT} <: MOI.AbstractNLPEvaluator
-    const fixed::A
-    const wfixed::A
-    const moving::I
-    const SD::SDT
-    const thresh
+struct RigidValue{N, A <: AbstractArray, I <: AbstractExtrapolation, SDT} <: MOI.AbstractNLPEvaluator
+    fixed::A
+    wfixed::A
+    moving::I
+    SD::SDT
+    thresh
 end
 
 function RigidValue(fixed::AbstractArray, moving::AbstractArray{T}, SD, thresh) where {T <: Real}
@@ -304,9 +304,9 @@ function (d::RigidValue)(x)
     return sum(abs2, f - m) / den
 end
 
-mutable struct RigidOpt{RV <: RigidValue, G} <: GradOnlyBoundsOnly
-    const rv::RV
-    const g::G
+struct RigidOpt{RV <: RigidValue, G} <: GradOnlyBoundsOnly
+    rv::RV
+    g::G
 end
 
 function RigidOpt(fixed, moving, SD, thresh)
@@ -456,10 +456,10 @@ function find_opt(P, b)
 end
 
 # A type for computing multiplication by the linear operator
-mutable struct AffineQHessian{AP <: AffinePenalty, M <: StaticMatrix, N, Φ}
-    const ap::AP
-    const Qs::Array{M, N}
-    const ϕ_old::Φ
+struct AffineQHessian{AP <: AffinePenalty, M <: StaticMatrix, N, Φ}
+    ap::AP
+    Qs::Array{M, N}
+    ϕ_old::Φ
 end
 
 function AffineQHessian(ap::AffinePenalty{T}, Qs::AbstractArray{TQ, N}, ϕ_old) where {T, TQ, N}
@@ -679,11 +679,11 @@ function u_as_vec(ϕs::Vector{D}, ::Type{T} = eltype(D)) where {D <: GridDeforma
 end
 
 
-mutable struct DeformOpt{D, Dold, DP, M} <: GradOnlyBoundsOnly
-    const ϕ::D
-    const ϕ_old::Dold
-    const dp::DP
-    const mmis::M
+struct DeformOpt{D, Dold, DP, M} <: GradOnlyBoundsOnly
+    ϕ::D
+    ϕ_old::Dold
+    dp::DP
+    mmis::M
 end
 # (d::DeformOpt)(x) = MOI.eval_objective(d, x)
 
@@ -735,12 +735,12 @@ function optimize!(ϕs::Vector{<:GridDeformation}, ϕs_old, dp::AffinePenalty{T,
     return optimize!(ϕs, ϕs_old, dp, mmisc; λt, kwargs...)
 end
 
-mutable struct DeformTseriesOpt{D, Dsold, DP, T, M} <: GradOnlyBoundsOnly
-    const ϕs::Vector{D}
-    const ϕs_old::Dsold
-    const dp::DP
-    const λt::T
-    const mmis::M
+struct DeformTseriesOpt{D, Dsold, DP, T, M} <: GradOnlyBoundsOnly
+    ϕs::Vector{D}
+    ϕs_old::Dsold
+    dp::DP
+    λt::T
+    mmis::M
 end
 
 # Using MOI is a legacy of the old Ipopt interface, but
@@ -1157,10 +1157,10 @@ function fit_sigmoid(data)
 end
 
 
-mutable struct SigmoidOpt{G, H} <: BoundsOnly
-    const data::Vector{Float64}
-    const g::G
-    const h::H
+struct SigmoidOpt{G, H} <: BoundsOnly
+    data::Vector{Float64}
+    g::G
+    h::H
 end
 
 SigmoidOpt(data::Vector{Float64}) = SigmoidOpt(data, y -> ForwardDiff.gradient(x -> sigpenalty(x, data), y), y -> ForwardDiff.hessian(x -> sigpenalty(x, data), y))
