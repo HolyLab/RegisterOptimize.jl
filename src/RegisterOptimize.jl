@@ -35,18 +35,22 @@ export
     initial_deformation
 
 """
-This module provides convenience functions for minimizing the mismatch
-between images. It supports both rigid registration and deformable
-registration.
+Convenience functions for minimizing the mismatch between images,
+supporting both rigid and deformable registration.
 
-The main functions are:
+**Exported functions:**
 
-- `optimize_rigid`: iteratively improve a rigid transformation, given raw images
-- `rotation_gridsearch`: brute-force search a grid of possible rotations and shifts to align raw images
-- `qd_rigid`: find a rotation and shift to align raw images using the QuadDIRECT algorithm
-- `initial_deformation`: provide an initial guess based on mismatch quadratic fits
-- `RegisterOptimize.optimize!`: iteratively improve a deformation, given mismatch data
-- `fixed_λ` and `auto_λ`: "complete" optimizers that generate initial guesses and then find the minimum
+- `initial_deformation`: initial deformation from quadratic mismatch fits
+- `fixed_λ`: full deformable registration at a fixed regularization strength
+- `auto_λ`: full deformable registration with automatic regularization selection
+- `auto_λt`: estimate optimal temporal regularization strength for image sequences
+- `fit_sigmoid`: fit data to a logistic function (used internally by `auto_λ`)
+
+**Internal helpers (not exported):**
+
+- `RegisterOptimize.optimize_rigid`: iteratively refine a rigid transformation
+- `RegisterOptimize.rotation_gridsearch`: brute-force grid search over rotations
+- `RegisterOptimize.optimize!`: iteratively improve a deformation given mismatch data
 """
 RegisterOptimize
 
@@ -320,19 +324,46 @@ MOI.eval_objective_gradient(d::RigidOpt, grad_f, x) =
 ### quadratic-fit mismatch data
 ###
 """
-`u0, converged = initial_deformation(ap::AffinePenalty, cs, Qs; λt=nothing)`
-prepares a globally-optimal initial guess for a deformation, given a
-quadratic fit to the aperture-wise mismatch data. `cs` and `Qs` must
-be arrays-of-arrays in the shape of the u0-grid, each entry as
-calculated by `qfit`. The initial guess minimizes the function
+    u0, converged = initial_deformation(ap::AffinePenalty, cs, Qs; λt=nothing)
+
+Compute the optimal initial deformation `u0` with respect to the
+quadratic approximation of the mismatch data. `cs` and `Qs` are
+arrays-of-arrays matching the deformation grid shape, with each entry
+calculated by `qfit`. `u0` minimizes
 
 ```
     ap(ϕ(u0)) + ∑_i (u0[i]-cs[i])' * Qs[i] * (u0[i]-cs[i])
 ```
-where `ϕ(u0)` is the deformation associated with `u0`.
 
-Pass `λt` to include a temporal roughness penalty (requires
-`cs::AbstractArray{SVector{…}}` and `Qs::AbstractArray{SMatrix{…}}`).
+Because this objective is a quadratic approximation of the true mismatch,
+`u0` is globally optimal only with respect to that approximation. Pass it
+as the starting point for `fixed_λ` or `RegisterOptimize.optimize!`.
+
+`converged` is `true` if the iterative solver converged. When `converged`
+is `false` the returned `u0` may be inaccurate; `fixed_λ` and `auto_λ`
+fall back to using `cs` directly in that case.
+
+Pass `λt` to include a temporal roughness penalty for an image sequence
+(requires `cs::AbstractArray{SVector{…}}` and `Qs::AbstractArray{SMatrix{…}}`).
+
+# Examples
+```jldoctest
+julia> using RegisterPenalty, StaticArrays
+
+julia> nodes = (range(1, stop=10, length=3),);
+
+julia> ap = AffinePenalty(nodes, 1.0);
+
+julia> cs = [[2.0], [-1.0], [0.5]]; Qs = [reshape([1.0], 1, 1) for _ in 1:3];
+
+julia> u0, converged = initial_deformation(ap, cs, Qs);
+
+julia> converged
+true
+
+julia> length(u0) == length(cs)
+true
+```
 """
 function initial_deformation(ap::AffinePenalty, cs, Qs; λt = nothing)
     return _initial_deformation(ap, cs, Qs)
@@ -736,16 +767,17 @@ function _copy!(ϕs::Vector{D}, x::Array{T}) where {D <: GridDeformation, T <: N
 end
 
 """
-`ϕ, penalty = fixed_λ(cs, Qs, nodes, affinepenalty, mmis; λt=nothing)` computes an
-optimal deformation `ϕ` (or sequence `ϕs` when `λt` is given) and its
-total `penalty` (data penalty + regularization penalty).  `cs` and `Qs`
-come from `qfit`, `nodes` specifies the deformation grid, `affinepenalty`
-the `AffinePenalty` object for that grid, and `mmis` is the
-array-of-mismatch arrays (already interpolating, see `interpolate_mm!`).
+    ϕ, penalty = fixed_λ(cs, Qs, nodes, affinepenalty, mmis; λt=nothing)
 
-Pass `λt` to include a temporal roughness penalty for an image sequence
-(requires SVector/SMatrix-typed `cs`/`Qs`); the return value is then a
-`Vector{GridDeformation}`.
+Compute the optimal deformation `ϕ` and scalar total `penalty` (data +
+regularization) for a fixed regularization strength embedded in
+`affinepenalty`. `cs` and `Qs` come from `qfit`, `nodes` specifies the
+deformation grid, `affinepenalty` is an `AffinePenalty` for that grid,
+and `mmis` is the array of mismatch arrays produced by `interpolate_mm!`.
+
+`ϕ` is a `GridDeformation`. Pass `λt` to add a temporal roughness
+penalty for an image sequence (requires `SVector`/`SMatrix`-typed
+`cs`/`Qs`), in which case `ϕ` is a `Vector{GridDeformation}`.
 
 See also: `auto_λ`.
 """
@@ -804,39 +836,34 @@ end
 ### Set λ automatically
 ###
 """
-`ϕ, penalty, λ, datapenalty, quality = auto_λ(fixed, moving, gridsize, maxshift, (λmin, λmax))` automatically chooses "the best"
-value of `λ` to serve in the spatial regularization penalty. It tests a
-sequence of `λ` values, starting with `λmin` and each successive value
-two-fold larger than the previous; for each such `λ`, it optimizes the
-registration and then evaluates just the "data" portion of the
-penalty.  The "best" value is selected by a sigmoidal fit of the
-impact of `λ` on the data penalty, choosing a value that lies at the
-initial upslope of the sigmoid (indicating that the penalty is large
-enough to begin limiting the form of the deformation, but not yet to
-substantially decrease the quality of the registration).
+    ϕ, penalty, λ, λ_all, datapenalty, quality = auto_λ(fixed, moving, gridsize, maxshift, (λmin, λmax))
+    ϕ, penalty, λ, λ_all, datapenalty, quality = auto_λ(cs, Qs, nodes, mmis, (λmin, λmax))
 
-`ϕ, penalty, λ, datapenalty, quality = auto_λ(cs, Qs, nodes, mmis,
-(λmin, λmax))` is used if you've already computed mismatch data. `cs`
-and `Qs` come from `qfit`, `nodes` specifies the deformation grid, and
-`mmis` is the array-of-mismatch arrays (already interpolating, see
-`interpolate_mm!`).
+Automatically choose the spatial regularization strength `λ` for
+deformable image registration. Tests a geometric sequence of `λ` values
+from `λmin` to `λmax` (each step two-fold larger), optimizes the
+registration at each, and selects the best value via a sigmoidal fit of
+the data penalty vs. `λ` curve, targeting the onset of regularization.
 
-As a first pass, try setting `λmin=1e-6` and `λmax=100`. You can plot
-the returned `datapenalty` and check that it is approximately
-sigmoidal; if not, you will need to alter the range you supply.
+The second form accepts pre-computed mismatch data: `cs` and `Qs` from
+`qfit`, `nodes` specifying the deformation grid, and `mmis` the
+interpolated mismatch arrays (see `interpolate_mm!`).
 
-Upon return, `ϕ` is the chosen deformation, `penalty` its total
-penalty (data penalty+regularization penalty), `λ` is the chosen value
-of `λ`, `datapenalty` is a vector containing the data penalty for each
-tested `λ` value, and `quality` an estimate (possibly broken) of the
-fidelity of the sigmoidal fit.
+As a first pass, try `λmin=1e-6` and `λmax=100`. Plot the returned
+`datapenalty` vs `λ_all` to verify an approximately sigmoidal shape;
+if not, widen or shift the range. Pass `stackidx=k` to restrict
+analysis to the `k`-th frame of an image sequence.
 
-If you have data for an image sequence, pass `stackidx=k` to analyze
-only the `k`-th slice of `cs`, `Qs`, and `mmis` along their last
-dimension.
+Returns:
+- `ϕ`: the `GridDeformation` at the chosen `λ`
+- `penalty`: total (data + regularization) penalty at `ϕ`
+- `λ`: the selected regularization strength
+- `λ_all`: `Vector` of all tested `λ` values
+- `datapenalty`: `Vector` of data-only penalties for each tested `λ`
+- `quality`: scalar estimate of the sigmoidal fit quality (lower is better)
 
-See also: `fixed_λ`. Because `auto_λ` performs the optimization
-repeatedly for many different `λ`s, it is slower than `fixed_λ`.
+See also: `fixed_λ`. Because `auto_λ` optimizes for many `λ` values, it
+is slower than `fixed_λ`.
 """
 function auto_λ(fixed::AbstractArray{R}, moving::AbstractArray{S}, gridsize::NTuple{N}, maxshift::NTuple{N}, λrange; thresh = (0.5)^ndims(fixed) * length(fixed) / prod(gridsize), kwargs...) where {R <: Real, S <: Real, N}
     T = Float64
@@ -957,20 +984,23 @@ end
 
 # Because of the long run times, here we only use the quadratic approximation
 """
-`λts, datapenalty = auto_λt(Es, cs, Qs, ap, (λtmin, λtmax))` estimates
-the whole-experiment mismatch penalty as a function of `λt`, choosing
-values starting at `λtmin` and increasing two-fold until `λtmax`.
-`Es`, `cs`, and `Qs` come from the quadratic fix of the mismatch, and
-`ap` is the (spatial) affine-residual penalty.  As a first guess, try
-`λtmin=1e-6` and `λtmax=1`.  (Larger values of `λt` are noticeably
-slower to optimize.)
+    λts, datapenalty = auto_λt(Es, cs, Qs, ap, (λtmin, λtmax))
 
-By plotting `datapenalty` vs `λts` (with a log-scale on the x-axis),
-you can find the "kink" at which the value of `λt` begins to constrain
-the optimization.  Good choices for `λt` tend to be near this kink.
-Since only an approximation of the mismatch is used, the value of the
-estimated data penalty will not be terribly accurate, but the hope is
-that its dependence on `λt` will be approximately correct.
+Estimate the whole-experiment mismatch penalty as a function of the
+temporal regularization strength `λt`, sampling values from `λtmin` to
+`λtmax` in two-fold steps. `Es`, `cs`, and `Qs` come from the quadratic
+fit of the mismatch (e.g., via `mms2fit`), and `ap` is the (spatial)
+`AffinePenalty`. As a first guess, try `λtmin=1e-6` and `λtmax=1`.
+(Larger values of `λt` are noticeably slower to optimize.)
+
+Returns `λts`, a `Vector` of the tested `λt` values, and `datapenalty`,
+a `Vector` of the estimated data penalty at each value. By plotting
+`datapenalty` vs `λts` with a log-scale on the x-axis, you can find
+the "kink" at which `λt` begins to constrain the optimization. Good
+choices for `λt` tend to be near this kink. Since only a quadratic
+approximation of the mismatch is used, the absolute values of
+`datapenalty` will not be accurate, but their dependence on `λt` should
+be approximately correct.
 """
 function auto_λt(Es, cs, Qs, ap, λtrange)
     ngrid = prod(size(Es)[1:(end - 1)])
@@ -1046,14 +1076,35 @@ end
 # Used in automatically setting λ
 
 """
-`fit_sigmoid(data, [bottom, top, center, width])` fits the y-values in `data` to a logistic function
+    fit_sigmoid(data, bottom, top, center, width)
+    fit_sigmoid(data)
+
+Fit the y-values in `data` to a logistic function
+
 ```
    y = bottom + (top-bottom)./(1 + exp(-(data-center)/width))
 ```
-This is "non-extrapolating": the parameter values are constrained to
-be within the range of the supplied data (i.e., `bottom` and `top`
-between the min and max values of `data`, `center` within `[1,
-length(data)]`, and `0.1 <= width <= length(data)`.)
+
+The five-argument form uses the supplied `bottom`, `top`, `center`, and
+`width` as the initial guess for the optimizer. The one-argument form
+derives the initial guess automatically from the data.
+
+All four parameters are constrained to lie within
+`[minimum(data), maximum(data)]`. Throws an error if `length(data) < 4`.
+
+Returns the 5-tuple `(bottom, top, center, width, objective_value)`,
+where `objective_value` is the residual sum of squares at the optimum
+(smaller values indicate a better fit).
+
+# Examples
+```jldoctest
+julia> n = 20; data = 1.0 .+ 9.0 ./ (1 .+ exp.(-(collect(1:n) .- 5.0) ./ 2.0));
+
+julia> b, t, c, w, obj = fit_sigmoid(data);
+
+julia> isfinite(obj) && obj >= 0
+true
+```
 """
 function fit_sigmoid(data, bottom, top, center, width)
     length(data) >= 4 || error("Too few data points for sigmoidal fit")

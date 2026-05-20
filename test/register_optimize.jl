@@ -5,6 +5,7 @@ using RegisterCore, RegisterPenalty, RegisterDeformation, RegisterMismatch, Regi
 using Images, CoordinateTransformations, Rotations, RegisterOptimize, LinearAlgebra
 using RegisterUtilities
 using Aqua
+using Documenter
 using ExplicitImports
 
 @testset "Aqua" begin
@@ -417,4 +418,13 @@ end
     @test fval < 0.05
     # recovered rotation is close to rotation2(-angle)
     @test result_tfm.linear[1, 2] ≈ sin(angle) atol = 0.05
+end
+
+@testset "Doctests" begin
+    DocMeta.setdocmeta!(
+        RegisterOptimize, :DocTestSetup,
+        :(using RegisterOptimize, RegisterPenalty, StaticArrays);
+        recursive = true,
+    )
+    doctest(RegisterOptimize; manual = false)
 end

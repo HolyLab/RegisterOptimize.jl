@@ -27,6 +27,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 Aqua = "0.8"
+Documenter = "1"
 CachedInterpolations = "1"
 CenterIndexedArrays = "1"
 CoordinateTransformations = "0.5, 0.6"
@@ -59,6 +60,7 @@ julia = "1.10"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
 Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
@@ -69,4 +71,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestImages = "5e47fb64-e119-507b-a336-dd2b206d9990"
 
 [targets]
-test = ["Aqua", "ExplicitImports", "Test", "Rotations", "RegisterMismatch", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
+test = ["Aqua", "Documenter", "ExplicitImports", "Test", "Rotations", "RegisterMismatch", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
