@@ -7,7 +7,7 @@ using CenterIndexedArrays: CenterIndexedArrays, CenterIndexedArray
 using CoordinateTransformations: CoordinateTransformations, AffineMap
 using ForwardDiff: ForwardDiff
 using Interpolations: Interpolations, AbstractExtrapolation, AbstractInterpolation,
-                      BSpline, InPlace, Linear, OnCell, Quadratic
+                      BSpline, InPlace, OnCell, Quadratic
 using Ipopt: Ipopt
 using IterativeSolvers: IterativeSolvers, cg
 using LinearAlgebra: LinearAlgebra, I, dot, mul!, tr
