@@ -332,3 +332,89 @@ end
         @test -1.01 <= ϕ.u[i][1] <= -0.99
     end
 end
+
+@testset "to_float" begin
+    A, B = RegisterOptimize.to_float([1, 2, 3], [4, 5, 6])
+    @test eltype(A) == Float32
+    @test eltype(B) == Float32
+
+    A, B = RegisterOptimize.to_float([1.0, 2.0], [3.0, 4.0])
+    @test eltype(A) == Float64
+    @test eltype(B) == Float64
+
+    A, B = RegisterOptimize.to_float(Float32[1, 2], [3.0, 4.0])
+    @test eltype(A) == Float64
+    @test eltype(B) == Float64
+end
+
+@testset "p2rigid" begin
+    SD1 = reshape([1.0], 1, 1)
+    r1 = RegisterOptimize.p2rigid([5.0], SD1)
+    @test r1.translation ≈ [5.0]
+
+    SD = Matrix{Float64}(I, 2, 2)
+    angle = π / 6
+    r2 = RegisterOptimize.p2rigid([angle, 0.0, 0.0], SD)
+    @test r2.linear ≈ [cos(angle) -sin(angle); sin(angle) cos(angle)]
+    @test r2.translation ≈ [0.0, 0.0]
+
+    SD3 = Matrix{Float64}(I, 3, 3)
+    r3 = RegisterOptimize.p2rigid([0.0, 0.0, π / 6, 1.0, 2.0, 3.0], SD3)
+    @test r3.translation ≈ [1.0, 2.0, 3.0]
+
+    @test_throws ErrorException RegisterOptimize.p2rigid([1.0, 2.0], SD)
+end
+
+@testset "to_full" begin
+    nodes = (range(1, stop = 20, length = 4), range(1, stop = 15, length = 4))
+    ap = AffinePenalty(nodes, 1.0)
+    gridsize = map(length, nodes)
+    Qs = [Matrix{Float64}(I, 2, 2) for _ in CartesianIndices(gridsize)]
+    A = RegisterOptimize.to_full(ap, Qs)
+    @test size(A) == (32, 32)
+    @test A ≈ A'
+    @test all(>=(0), diag(A))
+end
+
+@testset "grid_rotations 2D" begin
+    SD = Matrix{Float64}(I, 2, 2)
+    rots = RegisterOptimize.grid_rotations(π / 4, 3, SD)
+    @test length(rots) == 3
+    @test rots[2].linear ≈ Matrix{Float64}(I, 2, 2)
+    @test rots[2].translation ≈ zeros(2)
+
+    # Even grid size gets rounded up to next odd integer
+    rots4 = RegisterOptimize.grid_rotations(π / 4, 4, SD)
+    @test length(rots4) == 5
+end
+
+@testset "fit_sigmoid" begin
+    n = 20
+    bot, top, ctr, wid = 1.0, 10.0, 5.0, 2.0
+    data = bot .+ (top - bot) ./ (1 .+ exp.(-(collect(1:n) .- ctr) ./ wid))
+
+    @test RegisterOptimize.sigpenalty([bot, top, ctr, wid], data) < 1e-20
+
+    b, t, c, w, fval = RegisterOptimize.fit_sigmoid(data, bot, top, ctr, wid)
+    @test isfinite(fval)
+    @test fval >= 0
+
+    b2, t2, c2, w2, fval2 = RegisterOptimize.fit_sigmoid(data)
+    @test isfinite(fval2)
+
+    @test_throws ErrorException RegisterOptimize.fit_sigmoid([1.0, 2.0, 3.0])
+    @test_throws ErrorException RegisterOptimize.fit_sigmoid([1.0, 2.0, 3.0], 1.0, 3.0, 2.0, 1.0)
+end
+
+@testset "optimize_rigid" begin
+    img = zeros(30, 30)
+    img[8:22, 8:22] .= 1.0
+    angle = 0.1
+    tfm_in = AffineMap(rotation2(angle), zeros(2))
+    img_rot = transform(img, tfm_in)
+    SD = Matrix{Float64}(I, 2, 2)
+    result_tfm, fval = RegisterOptimize.optimize_rigid(img, img_rot, tfm_in, [5, 5]; SD)
+    @test fval < 0.05
+    # recovered rotation is close to rotation2(-angle)
+    @test result_tfm.linear[1, 2] ≈ sin(angle) atol = 0.05
+end

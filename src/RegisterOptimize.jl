@@ -540,7 +540,7 @@ end
 # algorithms. In that case we use a subgradient method, using gradient
 # descent with a "constant" step length (using an L1 measure of
 # length). See https://en.wikipedia.org/wiki/Subgradient_method.
-function _optimize!(ϕ, ϕ_old, dp::DeformationPenalty, mmis, ::Type{BSpline{Linear}}; stepsize = 1.0, kwargs...)
+function _optimize!(ϕ, ϕ_old, dp::DeformationPenalty, mmis, ::Type{<:BSpline{<:Interpolations.Linear}}; stepsize = 1.0, kwargs...)
     mxs = maxshift(first(mmis))
     g = similar(ϕ.u)
     gview = convert_from_fixed(g)

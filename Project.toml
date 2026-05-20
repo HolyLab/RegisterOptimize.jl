@@ -47,6 +47,7 @@ ProgressMeter = "0.7, 0.8, 0.9, 1"
 RegisterCore = "1"
 RegisterDeformation = "1"
 RegisterFit = "1"
+RegisterMismatch = "1"
 RegisterPenalty = "1"
 RegisterUtilities = "1"
 Rotations = "1"
@@ -61,10 +62,11 @@ Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
 Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+RegisterMismatch = "3c0dd727-6833-5f5d-a1e8-c0d421935c74"
 RegisterUtilities = "d4862ba2-f42c-5aeb-af4f-96a8884a16c4"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestImages = "5e47fb64-e119-507b-a336-dd2b206d9990"
 
 [targets]
-test = ["Aqua", "ExplicitImports", "Test", "Rotations", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
+test = ["Aqua", "ExplicitImports", "Test", "Rotations", "RegisterMismatch", "RegisterUtilities", "ImageMagick", "Images", "TestImages"]
